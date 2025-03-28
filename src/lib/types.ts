@@ -155,9 +155,10 @@ export interface StartSessionResponse {
 }
 
 export interface UploadDocumentsResponse {
-  vector_store_id: string;
+  vector_store_id: string | null;
+  files_received: string[];
+  analysis_status: string;
   message: string;
-  files_uploaded: { filename: string; file_id: string }[];
 }
 
 // Generic types for API state

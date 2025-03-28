@@ -43,7 +43,7 @@ export default function UploadPage() {
       const uploadResponse = await api.uploadDocuments(currentSessionId, selectedFiles);
       setVectorStoreId(uploadResponse.vector_store_id); // Assuming API returns this
 
-      toast({ title: "Upload Successful", description: `${uploadResponse.files_uploaded.length} file(s) processed.` });
+      toast({ title: "Upload Successful", description: `${uploadResponse.files_received.length} file(s) processed.` });
 
       // 3. Trigger generation steps (could be combined with upload on backend)
       setLoading('loading', 'Analyzing documents and preparing lesson...');

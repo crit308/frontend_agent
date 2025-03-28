@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import * as api from '@/lib/api';
@@ -16,23 +16,17 @@ export default function LessonPage() {
   const router = useRouter();
   const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
 
-  const {
-    lessonContent,
-    setLessonContent,
-    loadingState,
-    setLoading,
-    error,
-    setError,
-  } = useSessionStore(state => ({
-    lessonContent: state.lessonContent,
-    setLessonContent: state.setLessonContent,
-    loadingState: state.loadingState,
-    setLoading: state.setLoading,
-    error: state.error,
-    setError: state.setError,
-  }));
+  // Individual selectors to avoid unnecessary re-renders
+  const lessonContent = useSessionStore(state => state.lessonContent);
+  const loadingState = useSessionStore(state => state.loadingState);
+  const error = useSessionStore(state => state.error);
+  const setLoading = useSessionStore(state => state.setLoading);
+  const setError = useSessionStore(state => state.setError);
+  const setLessonContent = useSessionStore(state => state.setLessonContent);
+  const loadingMessage = useSessionStore(state => state.loadingMessage);
 
   const [localLoading, setLocalLoading] = useState(true);
+  const isFetchingRef = useRef(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -41,24 +35,36 @@ export default function LessonPage() {
       return;
     }
 
+    // Prevent fetching if already fetching, or if content exists, or if there was a persistent error
+    if (isFetchingRef.current || lessonContent || (error && loadingState === 'error')) {
+      setLocalLoading(false); // Ensure spinner stops
+      return;
+    }
+
     const fetchLesson = async () => {
+      isFetchingRef.current = true; // Mark as fetching
       setLocalLoading(true);
       setLoading('loading', 'Fetching lesson content...');
-      setError(null);
+      
       try {
+        console.log(`Attempting to fetch lesson for session: ${sessionId}`);
         const data = await api.getLessonContent(sessionId);
+
         if (!data || !data.sections || data.sections.length === 0) {
-          setLoading('loading', 'Lesson content is still generating, please wait...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          console.log('Lesson content is null/undefined or empty from API.');
+          setLoading('loading', 'Lesson content might still be generating...');
+          // Implement a limited retry with timeout
+          await new Promise(resolve => setTimeout(resolve, 7000));
           const retryData = await api.getLessonContent(sessionId);
           if (!retryData || !retryData.sections || retryData.sections.length === 0) {
-            throw new Error("Lesson content generation timed out or failed.");
+            throw new Error("Lesson content not found after waiting.");
           }
           setLessonContent(retryData);
+          setLoading('success');
         } else {
           setLessonContent(data);
+          setLoading('success');
         }
-        setLoading('success');
       } catch (err: any) {
         console.error("Failed to fetch lesson content:", err);
         const errorMessage = err.response?.data?.detail || err.message || 'Failed to load lesson.';
@@ -66,12 +72,12 @@ export default function LessonPage() {
         setLoading('error', errorMessage);
       } finally {
         setLocalLoading(false);
+        isFetchingRef.current = false; // Mark fetching as complete
       }
     };
 
     fetchLesson();
-
-  }, [sessionId, setLessonContent, setLoading, setError]);
+  }, [sessionId, setError, setLessonContent, setLoading]);
 
   const handleProceedToQuiz = () => {
     if (sessionId) {
@@ -81,7 +87,7 @@ export default function LessonPage() {
   };
 
   if (localLoading || loadingState === 'loading' && !lessonContent) {
-    return <LoadingSpinner message={useSessionStore.getState().loadingMessage || 'Loading lesson...'} />;
+    return <LoadingSpinner message={loadingMessage || 'Loading lesson...'} />;
   }
 
   if (error) {

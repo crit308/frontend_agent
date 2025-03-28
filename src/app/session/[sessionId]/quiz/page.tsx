@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import * as api from '@/lib/api';
@@ -18,48 +18,66 @@ export default function QuizPage() {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
-  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
-
-  const { quiz, setQuiz, quizFeedback, setQuizFeedback, loadingState, setLoading, error, setError } = useSessionStore(state => ({
-    quiz: state.quiz,
-    setQuiz: state.setQuiz,
-    quizFeedback: state.quizFeedback,
-    setQuizFeedback: state.setQuizFeedback,
-    loadingState: state.loadingState,
-    setLoading: state.setLoading,
-    error: state.error,
-    setError: state.setError,
-  }));
+  
+  // Select state individually
+  const sessionId = useSessionStore((state) => state.sessionId);
+  const quiz = useSessionStore((state) => state.quiz);
+  const loadingState = useSessionStore((state) => state.loadingState);
+  const error = useSessionStore((state) => state.error);
+  const setQuiz = useSessionStore((state) => state.setQuiz);
+  const setLoading = useSessionStore((state) => state.setLoading);
+  const setError = useSessionStore((state) => state.setError);
+  const setQuizFeedback = useSessionStore((state) => state.setQuizFeedback);
 
   const [localLoading, setLocalLoading] = useState(true);
   const [userAnswers, setUserAnswers] = useState<{ [key: number]: number }>({});
   const [startTime] = useState(Date.now());
+  const isFetchingRef = useRef(false);
 
   useEffect(() => {
-    if (!sessionId) {
-      setError('Invalid session ID.');
-      setLocalLoading(false);
-      return;
+    // Condition to fetch: We have a session ID, no quiz data loaded yet, and not currently fetching.
+    const shouldFetch = sessionId && !quiz && !isFetchingRef.current;
+
+    if (!shouldFetch) {
+      // If we are not fetching, ensure loading spinner stops
+      if (!isFetchingRef.current) {
+        setLocalLoading(false);
+      }
+      // If there's an error already, keep spinner potentially stopped
+      if (error) {
+        setLocalLoading(false);
+      }
+      return; // Exit if no fetch needed
     }
 
     const fetchQuiz = async () => {
+      isFetchingRef.current = true;
       setLocalLoading(true);
       setLoading('loading', 'Fetching quiz...');
-      setError(null);
+
       try {
+        console.log(`Attempting to fetch quiz for session: ${sessionId}`);
         const data = await api.getQuiz(sessionId);
-        if (!data || !data.questions || data.questions.length === 0) {
-          setLoading('loading', 'Quiz is still generating, please wait...');
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          const retryData = await api.getQuiz(sessionId);
-          if (!retryData || !retryData.questions || retryData.questions.length === 0) {
-            throw new Error("Quiz generation timed out or failed.");
-          }
-          setQuiz(retryData);
-        } else {
+
+        if (data) {
+          console.log("Quiz data fetched successfully from API:", data);
           setQuiz(data);
+          setLoading('success');
+        } else {
+          // API returned null or undefined - could still be generating or truly missing
+          console.log("API returned no quiz data. Waiting...");
+          setLoading('loading', 'Quiz might still be generating...');
+          await new Promise(resolve => setTimeout(resolve, 7000)); // Wait
+          const retryData = await api.getQuiz(sessionId);
+          if (retryData) {
+            console.log("Quiz data fetched successfully on retry:", retryData);
+            setQuiz(retryData);
+            setLoading('success');
+          } else {
+            console.error("Quiz not found even after waiting.");
+            throw new Error("Quiz not found after waiting.");
+          }
         }
-        setLoading('success');
       } catch (err: any) {
         console.error("Failed to fetch quiz:", err);
         const errorMessage = err.response?.data?.detail || err.message || 'Failed to load quiz.';
@@ -67,11 +85,12 @@ export default function QuizPage() {
         setLoading('error', errorMessage);
       } finally {
         setLocalLoading(false);
+        isFetchingRef.current = false;
       }
     };
 
     fetchQuiz();
-  }, [sessionId, setQuiz, setLoading, setError]);
+  }, [sessionId, quiz, setQuiz, setLoading, setError]);
 
   const handleAnswerChange = (questionIndex: number, selectedOptionIndex: string) => {
     setUserAnswers(prev => ({
@@ -112,10 +131,35 @@ export default function QuizPage() {
       router.push(`/session/${sessionId}/results`);
     } catch (err: any) {
       console.error("Failed to submit quiz:", err);
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to submit quiz.';
-      setError(errorMessage);
-      setLoading('error', errorMessage);
-      toast({ title: "Submission Failed", description: errorMessage, variant: "destructive" });
+
+      // --- Simpler Error Extraction ---
+      let displayError = 'Failed to submit quiz. An unknown error occurred.'; // Default
+      if (err.response?.data?.detail) {
+        // Try getting FastAPI detail (string or array)
+        if (Array.isArray(err.response.data.detail)) {
+          displayError = err.response.data.detail.map((e: any) => `${e.loc?.join('.') || 'field'}: ${e.msg}`).join(', ');
+        } else if (typeof err.response.data.detail === 'string') {
+          displayError = err.response.data.detail;
+        }
+      } else if (err.response?.data && typeof err.response.data === 'string') {
+        // Sometimes the error might be plain text in the response data
+        displayError = err.response.data;
+      } else if (err.message) {
+        // Fallback to Axios error message
+        displayError = err.message;
+      } else if (typeof err === 'string') {
+        // If the error itself is a string
+        displayError = err;
+      }
+      // Ensure we always have a string
+      if (typeof displayError !== 'string') {
+        displayError = 'Failed to submit quiz. Could not determine error details.';
+      }
+      // --- End Simpler Error Extraction ---
+
+      setError(displayError);
+      setLoading('error', displayError);
+      toast({ title: "Submission Failed", description: displayError, variant: "destructive" });
     }
   };
 
@@ -193,7 +237,10 @@ export default function QuizPage() {
         >
           {loadingState === 'loading' ? 'Submitting...' : 'Submit Quiz'}
         </Button>
-        {loadingState === 'error' && <p className="text-red-500 text-sm mt-2">{error}</p>}
+        {/* Render the error string safely */}
+        {loadingState === 'error' && error && (
+          <p className="text-red-500 text-sm mt-2">{error}</p>
+        )}
       </div>
     </div>
   );

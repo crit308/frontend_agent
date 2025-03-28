@@ -26,7 +26,7 @@ interface SessionState {
 
   // Actions
   setSessionId: (sessionId: string) => void;
-  setVectorStoreId: (vectorStoreId: string) => void;
+  setVectorStoreId: (vectorStoreId: string | null) => void;
   setUploadedFiles: (files: File[]) => void;
   setLessonPlan: (plan: LessonPlan | null) => void;
   setLessonContent: (content: LessonContent | null) => void;

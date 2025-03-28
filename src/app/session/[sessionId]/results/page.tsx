@@ -30,14 +30,13 @@ export default function ResultsPage() {
   const router = useRouter();
   const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
 
-  const { quizFeedback, loadingState, error, setLoading, setError, setSessionAnalysis } = useSessionStore(state => ({
-    quizFeedback: state.quizFeedback,
-    loadingState: state.loadingState,
-    error: state.error,
-    setLoading: state.setLoading,
-    setError: state.setError,
-    setSessionAnalysis: state.setSessionAnalysis,
-  }));
+  // Select state individually for better performance
+  const quizFeedback = useSessionStore((state) => state.quizFeedback);
+  const loadingState = useSessionStore((state) => state.loadingState);
+  const error = useSessionStore((state) => state.error);
+  const setLoading = useSessionStore((state) => state.setLoading);
+  const setError = useSessionStore((state) => state.setError);
+  const setSessionAnalysis = useSessionStore((state) => state.setSessionAnalysis);
 
   const handleTriggerAnalysis = async () => {
     if (!sessionId) return;
