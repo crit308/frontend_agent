@@ -120,8 +120,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       const numLessonItems = countLessonItems(lessonContent);
       const numQuizQuestions = quiz?.questions?.length ?? 0;
       return {
-        lessonContent: lessonContent ?? state.lessonContent,
-        quiz: quiz ?? state.quiz,
         learningStage: 'intro',
         currentLessonSectionIndex: -1,
         currentLessonItemIndex: 0,

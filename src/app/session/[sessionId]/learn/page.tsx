@@ -217,6 +217,7 @@ export default function LearnPage() {
     } = useSessionStore();
 
     const [localLoading, setLocalLoading] = useState(true);
+    const [hasInitialized, setHasInitialized] = useState(false); // Local flag for initialization
     const [currentQuizAnswer, setCurrentQuizAnswer] = useState<string | undefined>(undefined);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const isFetchingRef = useRef(false);
@@ -230,7 +231,8 @@ export default function LearnPage() {
         }
 
         // Fetch only if data isn't already loaded and not currently fetching
-        if ((!lessonContent || !quiz) && !isFetchingRef.current) {
+        // Also check if initialization hasn't happened yet to prevent re-runs after successful load
+        if (sessionId && (!lessonContent || !quiz) && !isFetchingRef.current && !hasInitialized) {
             const fetchLearnData = async () => {
                 isFetchingRef.current = true;
                 setLocalLoading(true);
@@ -253,7 +255,8 @@ export default function LearnPage() {
                     setQuiz(quizData);
                     setLoading('success');
                     console.log("Lesson and Quiz data loaded successfully. Initializing indices...");
-                    initializeStepIndices(lessonData, quizData); // Initialize state after fetching
+                    initializeStepIndices(lessonData, quizData);
+                    setHasInitialized(true); // Mark initialization as complete
 
                 } catch (err: any) {
                     console.error("Failed to fetch learning data:", err);
@@ -267,14 +270,12 @@ export default function LearnPage() {
             };
             fetchLearnData();
         } else {
-            // Data already exists or is fetching, stop local spinner
-            setLocalLoading(false);
-            if (lessonContent && quiz && loadingState !== 'error') {
-                 // Don't reset loading state if it's already 'success' or 'idle'
-                 // setLoading('idle');
+            // If data exists and initialization is done, ensure localLoading is false.
+            if (lessonContent && quiz && hasInitialized && localLoading) {
+                setLocalLoading(false);
             }
         }
-    }, [sessionId, lessonContent, quiz, setQuiz, setLoading, setError, loadingState, initializeStepIndices]); // Added initializeStepIndices dependency
+    }, [sessionId, lessonContent, quiz, hasInitialized, initializeStepIndices, setError, setLoading, setQuiz]); // Refined dependencies
 
     // Effect to load the stored answer when navigating back/forth between quiz questions
     useEffect(() => {

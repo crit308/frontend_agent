@@ -107,7 +107,7 @@ export const getLessonPlan = async (sessionId: string): Promise<LessonPlan> => {
 export const getLessonContent = async (sessionId: string): Promise<LessonContent> => {
   try {
     console.log(`Fetching lesson content for session ${sessionId}...`);
-    const response = await apiClient.get<LessonContent>(`/sessions/${sessionId}/learn/lesson`);
+    const response = await apiClient.get<LessonContent>(`/sessions/${sessionId}/lesson`);
     console.log('Lesson content fetched:', response.data);
     return response.data;
   } catch (error) {
@@ -119,7 +119,7 @@ export const getLessonContent = async (sessionId: string): Promise<LessonContent
 export const getQuiz = async (sessionId: string): Promise<Quiz> => {
   try {
     console.log(`Fetching quiz for session ${sessionId}...`);
-    const response = await apiClient.get<Quiz>(`/sessions/${sessionId}/learn/quiz`);
+    const response = await apiClient.get<Quiz>(`/sessions/${sessionId}/quiz`);
     console.log('Quiz fetched:', response.data);
     return response.data;
   } catch (error) {
@@ -133,7 +133,7 @@ export const getQuiz = async (sessionId: string): Promise<Quiz> => {
 export const submitQuiz = async (sessionId: string, answers: QuizUserAnswers): Promise<QuizFeedback> => {
   try {
     console.log(`Submitting quiz answers for session ${sessionId}...`);
-    const response = await apiClient.post<QuizFeedback>(`/sessions/${sessionId}/learn/quiz/submit`, answers);
+    const response = await apiClient.post<QuizFeedback>(`/sessions/${sessionId}/quiz/submit`, answers);
     console.log('Quiz feedback received:', response.data);
     return response.data;
   } catch (error) {
