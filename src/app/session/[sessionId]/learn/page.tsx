@@ -191,37 +191,39 @@ type StepContent =
 export default function LearnPage() {
     const params = useParams();
     const router = useRouter();
+    const { toast } = useToast();
     const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
 
-    const {
-        lessonContent,
-        quiz,
-        loadingState,
-        error,
-        learningStage,
-        goToNextStep,
-        setQuiz,
-        setLoading,
-        setError,
-        setQuizFeedback,
-        loadingMessage,
-        initializeStepIndices,
-        currentLessonSectionIndex,
-        currentLessonItemIndex,
-        currentQuizQuestionIndex,
-        currentResultItemIndex,
-        quizFeedback,
-        totalQuizQuestions,
-        userQuizAnswers,
-        setUserQuizAnswer,
-    } = useSessionStore();
+    // --- Select state slices individually from Zustand ---
+    const lessonContent = useSessionStore(state => state.lessonContent);
+    const quiz = useSessionStore(state => state.quiz);
+    const quizFeedback = useSessionStore(state => state.quizFeedback);
+    const loadingState = useSessionStore(state => state.loadingState);
+    const error = useSessionStore(state => state.error);
+    const loadingMessage = useSessionStore(state => state.loadingMessage);
+    const learningStage = useSessionStore(state => state.learningStage);
+    const currentLessonSectionIndex = useSessionStore(state => state.currentLessonSectionIndex);
+    const currentLessonItemIndex = useSessionStore(state => state.currentLessonItemIndex);
+    const currentQuizQuestionIndex = useSessionStore(state => state.currentQuizQuestionIndex);
+    const currentResultItemIndex = useSessionStore(state => state.currentResultItemIndex);
+    const totalQuizQuestions = useSessionStore(state => state.totalQuizQuestions);
+    const userQuizAnswers = useSessionStore(state => state.userQuizAnswers);
+
+    // --- Select actions individually (actions have stable references) ---
+    const initializeStepIndices = useSessionStore(state => state.initializeStepIndices);
+    const setLoading = useSessionStore(state => state.setLoading);
+    const setError = useSessionStore(state => state.setError);
+    const setQuiz = useSessionStore(state => state.setQuiz);
+    const setQuizFeedback = useSessionStore(state => state.setQuizFeedback);
+    const setUserQuizAnswer = useSessionStore(state => state.setUserQuizAnswer);
+    const goToNextStep = useSessionStore(state => state.goToNextStep);
+    const goToPreviousStep = useSessionStore(state => state.goToPreviousStep);
 
     const [localLoading, setLocalLoading] = useState(true);
     const [hasInitialized, setHasInitialized] = useState(false); // Local flag for initialization
-    const [currentQuizAnswer, setCurrentQuizAnswer] = useState<string | undefined>(undefined);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [currentQuizAnswer, setCurrentQuizAnswer] = useState<string | undefined>(undefined); // Local state for current question's answer
+    const [isSubmitting, setIsSubmitting] = useState(false); // Local submitting state
     const isFetchingRef = useRef(false);
-    const { toast } = useToast();
 
     useEffect(() => {
         if (!sessionId) {
@@ -279,14 +281,11 @@ export default function LearnPage() {
 
     // Effect to load the stored answer when navigating back/forth between quiz questions
     useEffect(() => {
+        // userQuizAnswers is now selected individually, so this effect is fine
         if (learningStage === 'quiz') {
             setCurrentQuizAnswer(userQuizAnswers[currentQuizQuestionIndex]?.toString());
         }
     }, [currentQuizQuestionIndex, learningStage, userQuizAnswers]);
-
-    const { goToPreviousStep } = useSessionStore(state => ({
-        goToPreviousStep: state.goToPreviousStep,
-    }));
 
     const getCurrentStepContent = (): StepContent => {
         if (loadingState === 'error') {
@@ -383,7 +382,7 @@ export default function LearnPage() {
     // --- Loading and Error States ---
     if (localLoading || (loadingState === 'loading' && (!lessonContent || !quiz))) {
         return (
-            <div className="flex h-screen items-center justify-center">
+            <div className="flex items-center justify-center w-full h-full">
                 <LoadingSpinner message={loadingMessage || 'Loading session...'} />
             </div>
         );
@@ -391,8 +390,8 @@ export default function LearnPage() {
 
     if (error) {
         return (
-            <div className="flex h-screen items-center justify-center p-4">
-                 <Alert variant="destructive" className="w-full max-w-lg">
+            <div className="flex items-center justify-center w-full h-full p-4">
+                <Alert variant="destructive" className="w-full max-w-lg">
                     <Terminal className="h-4 w-4" />
                     <AlertTitle>Error Loading Learning Session</AlertTitle>
                     <AlertDescription>{error}</AlertDescription>
@@ -402,17 +401,16 @@ export default function LearnPage() {
         );
     }
 
-    if (!lessonContent || !quiz) {
-         // This state might occur briefly or if fetching failed silently
+    if (!hasInitialized || !lessonContent || !quiz) {
         return (
-             <div className="flex h-screen items-center justify-center p-4">
+            <div className="flex items-center justify-center w-full h-full p-4">
                 <Alert className="w-full max-w-lg">
                     <Terminal className="h-4 w-4" />
                     <AlertTitle>Missing Data</AlertTitle>
                     <AlertDescription>Could not load all required learning materials.</AlertDescription>
-                     <Button onClick={() => router.push('/')} variant="link" className="mt-2 -ml-4">Go back to start</Button>
+                    <Button onClick={() => router.push('/')} variant="link" className="mt-2 -ml-4">Go back to start</Button>
                 </Alert>
-             </div>
+            </div>
         );
     }
 
