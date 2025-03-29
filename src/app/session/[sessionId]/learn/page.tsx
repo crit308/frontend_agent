@@ -184,6 +184,13 @@ const DisplayError = ({ message }: { message: string }) => (
 
 type StepContent = 
     | { type: 'error'; data: string }
+    | { type: 'lessonIntro'; data: LessonContent }
+    | { type: 'sectionIntro'; data: SectionContent }
+    | { type: 'explanation'; data: ExplanationContent; sectionTitle: string }
+    | { type: 'miniQuiz'; data: QuizQuestionType }
+    | { type: 'userSummary'; data: { sectionTitle: string; topic: string } }
+    | { type: 'sectionSummary'; data: SectionContent }
+    | { type: 'lessonConclusion'; data: LessonContent }
     | { type: 'quizQuestion'; data: QuizQuestionType }
     | { type: 'resultsSummary'; data: QuizFeedback }
     | { type: 'resultItem'; data: QuizFeedbackItem; index: number; total: number };
@@ -214,6 +221,7 @@ export default function LearnPage() {
     const setLoading = useSessionStore(state => state.setLoading);
     const setError = useSessionStore(state => state.setError);
     const setQuiz = useSessionStore(state => state.setQuiz);
+    const setLessonContent = useSessionStore(state => state.setLessonContent);
     const setQuizFeedback = useSessionStore(state => state.setQuizFeedback);
     const setUserQuizAnswer = useSessionStore(state => state.setUserQuizAnswer);
     const goToNextStep = useSessionStore(state => state.goToNextStep);
@@ -249,11 +257,16 @@ export default function LearnPage() {
                         api.getQuiz(sessionId)
                     ]);
 
-                    // TODO: Add retry logic here if needed, similar to individual lesson/quiz pages
+                    // Check specifically which one failed if needed
                     if (!lessonData || !quizData) {
-                        throw new Error("Failed to fetch lesson content or quiz.");
+                        const missing = [];
+                        if (!lessonData) missing.push("lesson content");
+                        if (!quizData) missing.push("quiz");
+                        throw new Error(`Failed to fetch ${missing.join(" or ")}.`);
                     }
 
+                    // Store both lesson content and quiz
+                    setLessonContent(lessonData);
                     setQuiz(quizData);
                     setLoading('success');
                     console.log("Lesson and Quiz data loaded successfully. Initializing indices...");
@@ -277,7 +290,7 @@ export default function LearnPage() {
                 setLocalLoading(false);
             }
         }
-    }, [sessionId, lessonContent, quiz, hasInitialized, initializeStepIndices, setError, setLoading, setQuiz]); // Refined dependencies
+    }, [sessionId, lessonContent, quiz, hasInitialized, initializeStepIndices, setError, setLoading, setQuiz, setLessonContent]); // Added setLessonContent to dependencies
 
     // Effect to load the stored answer when navigating back/forth between quiz questions
     useEffect(() => {
@@ -291,8 +304,69 @@ export default function LearnPage() {
         if (loadingState === 'error') {
             return { type: 'error', data: error || 'An unknown error occurred' };
         }
-        
-        if (learningStage === 'quiz' && quiz) {
+
+        if (learningStage === 'intro') {
+            if (lessonContent) {
+                return { type: 'lessonIntro', data: lessonContent };
+            } else {
+                return { type: 'error', data: 'Lesson content not loaded for intro stage.' };
+            }
+        }
+
+        if (learningStage === 'lesson' && lessonContent && currentLessonSectionIndex >= 0) {
+            const section = lessonContent.sections[currentLessonSectionIndex];
+            if (!section) return { type: 'error', data: `Invalid section index: ${currentLessonSectionIndex}` };
+
+            let cumulativeIndex = 0;
+
+            // 1. Section Intro
+            if (currentLessonItemIndex === cumulativeIndex) {
+                return { type: 'sectionIntro', data: section };
+            }
+            cumulativeIndex++;
+
+            // 2. Explanations, MiniQuizzes, UserSummaries
+            for (const explanation of section.explanations) {
+                // Explanation itself
+                if (currentLessonItemIndex === cumulativeIndex) {
+                    return { type: 'explanation', data: explanation, sectionTitle: section.title };
+                }
+                cumulativeIndex++;
+
+                // MiniQuiz (if exists)
+                if (explanation.mini_quiz && explanation.mini_quiz.length > 0) {
+                    // Display only the first mini quiz question for now per explanation step
+                    if (currentLessonItemIndex === cumulativeIndex) {
+                        return { type: 'miniQuiz', data: explanation.mini_quiz[0] };
+                    }
+                    cumulativeIndex++;
+                }
+
+                // UserSummary Prompt
+                if (currentLessonItemIndex === cumulativeIndex) {
+                    return { type: 'userSummary', data: { sectionTitle: section.title, topic: explanation.topic } };
+                }
+                cumulativeIndex++;
+            }
+
+            // 3. Section Summary
+            if (currentLessonItemIndex === cumulativeIndex) {
+                return { type: 'sectionSummary', data: section };
+            }
+
+            // If index is out of bounds for the section items
+            return { type: 'error', data: `Invalid item index ${currentLessonItemIndex} within section ${currentLessonSectionIndex}` };
+        }
+
+        if (learningStage === 'conclusion') {
+            if (lessonContent) {
+                return { type: 'lessonConclusion', data: lessonContent };
+            } else {
+                return { type: 'error', data: 'Lesson content not loaded for conclusion stage.' };
+            }
+        }
+
+        if (learningStage === 'quiz' && quiz && quiz.questions.length > currentQuizQuestionIndex) {
             return {
                 type: 'quizQuestion',
                 data: quiz.questions[currentQuizQuestionIndex]
@@ -303,14 +377,25 @@ export default function LearnPage() {
             if (currentResultItemIndex === 0) {
                 return { type: 'resultsSummary', data: quizFeedback };
             }
-            return {
-                type: 'resultItem',
-                data: quizFeedback.feedback_items[currentResultItemIndex - 1],
-                index: currentResultItemIndex,
-                total: quizFeedback.feedback_items.length
-            };
+            // Check index bounds for feedback items
+            if (currentResultItemIndex > 0 && currentResultItemIndex <= quizFeedback.feedback_items.length) {
+                return {
+                    type: 'resultItem',
+                    data: quizFeedback.feedback_items[currentResultItemIndex - 1],
+                    index: currentResultItemIndex,
+                    total: quizFeedback.feedback_items.length
+                };
+            } else {
+                return { type: 'error', data: `Invalid result item index: ${currentResultItemIndex}` };
+            }
         }
 
+        // If stage is 'complete' or none of the above match
+        if (learningStage === 'complete') {
+            return { type: 'error', data: 'Lesson Complete!' }; // Placeholder
+        }
+
+        // Fallback error for unhandled states
         return { type: 'error', data: `Unhandled state: Stage=${learningStage}, Section=${currentLessonSectionIndex}, Item=${currentLessonItemIndex}` };
     };
 
@@ -433,16 +518,28 @@ export default function LearnPage() {
                 {/* Setting explicit height `h-full` on children might be needed if Card doesn't fill */}
                 <div className="flex-grow p-4 md:p-6 bg-background overflow-hidden relative">
                     {/* --- Conditional Rendering Logic --- */}
-                    {/* Apply height styling to the rendered component */}
-                    {/* Consider adding transition effects for smoother step changes (e.g., fade) */}
-                    {currentStepContent.type === 'error' && (
-                        <Alert variant="destructive">
-                            <Terminal className="h-4 w-4" />
-                            <AlertTitle>Error</AlertTitle>
-                            <AlertDescription>{currentStepContent.data}</AlertDescription>
-                        </Alert>
+                    {/* --- ADD RENDERING FOR LESSON STEPS --- */}
+                    {currentStepContent.type === 'lessonIntro' && <DisplayLessonIntro lessonContent={currentStepContent.data} />}
+                    {currentStepContent.type === 'sectionIntro' && <DisplaySectionIntro section={currentStepContent.data} />}
+                    {currentStepContent.type === 'explanation' && <DisplayExplanation explanation={currentStepContent.data} sectionTitle={currentStepContent.sectionTitle} />}
+                    {currentStepContent.type === 'miniQuiz' && (
+                        <Card className="h-full flex flex-col">
+                            <CardContent className="flex-grow overflow-y-auto p-4">
+                                <MiniQuiz question={currentStepContent.data} />
+                            </CardContent>
+                        </Card>
                     )}
+                    {currentStepContent.type === 'userSummary' && (
+                        <Card className="h-full flex flex-col">
+                            <CardContent className="flex-grow overflow-y-auto p-4">
+                                <UserSummary sectionTitle={currentStepContent.data.sectionTitle} topic={currentStepContent.data.topic} />
+                            </CardContent>
+                        </Card>
+                    )}
+                    {currentStepContent.type === 'sectionSummary' && <DisplaySectionSummary section={currentStepContent.data} />}
+                    {currentStepContent.type === 'lessonConclusion' && <DisplayLessonConclusion lessonContent={currentStepContent.data} />}
 
+                    {/* Existing Quiz/Results Rendering */}
                     {currentStepContent.type === 'quizQuestion' && (
                         <QuizQuestion
                             question={currentStepContent.data}
@@ -452,9 +549,17 @@ export default function LearnPage() {
                             onAnswerChange={(value) => setCurrentQuizAnswer(value)}
                         />
                     )}
-
                     {currentStepContent.type === 'resultsSummary' && <DisplayResultsSummary feedback={currentStepContent.data} />}
                     {currentStepContent.type === 'resultItem' && <DisplayResultFeedbackItem item={currentStepContent.data} index={currentStepContent.index} total={currentStepContent.total} />}
+
+                    {/* Error Display */}
+                    {currentStepContent.type === 'error' && (
+                        <Alert variant="destructive">
+                            <Terminal className="h-4 w-4" />
+                            <AlertTitle>Error</AlertTitle>
+                            <AlertDescription>{currentStepContent.data}</AlertDescription>
+                        </Alert>
+                    )}
                 </div>
 
                 {/* Fixed Footer Area (For Navigation in Phase 4) */}
