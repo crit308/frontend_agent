@@ -8,7 +8,19 @@ import remarkGfm from 'remark-gfm'; // Needed for markdown tables, etc.
 import { Button } from '@/components/ui/button';
 import { useSessionStore } from '@/store/sessionStore';
 import * as api from '@/lib/api';
-import type { LessonContent, Quiz, SectionContent, ExplanationContent, QuizQuestion as QuizQuestionType, QuizFeedback, QuizFeedbackItem } from '@/lib/types';
+import type { 
+    LessonContent, 
+    Quiz, 
+    SectionContent, 
+    ExplanationContent, 
+    QuizQuestion as QuizQuestionType, 
+    QuizFeedback, 
+    QuizFeedbackItem, 
+    MiniQuizInfo, 
+    UserSummaryPromptInfo,
+    QuizUserAnswer,
+    QuizUserAnswers
+} from '@/lib/types';
 import LoadingSpinner from '@/components/LoadingSpinner'; // Reuse LoadingSpinner
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"; // Useful for styling chunks
@@ -18,6 +30,8 @@ import MiniQuiz from '@/components/MiniQuiz'; // Reuse MiniQuiz component
 import UserSummary from '@/components/UserSummary'; // Reuse UserSummary component
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; // For quiz questions
 import { Label } from "@/components/ui/label"; // For quiz questions
+import { Separator } from "@/components/ui/separator"; // For visual separation
+import { Progress } from "@/components/ui/progress"; // For progress indicators
 
 // --- Placeholder Content Chunk Components (Define within LearnPage or import later) ---
 
@@ -195,6 +209,113 @@ type StepContent =
     | { type: 'resultsSummary'; data: QuizFeedback }
     | { type: 'resultItem'; data: QuizFeedbackItem; index: number; total: number };
 
+// --- New Components for Grouped Views ---
+
+const DisplayFullLesson = ({ lessonContent }: { lessonContent: LessonContent }) => (
+    <div className="h-full overflow-y-auto p-1"> {/* Scrollable container */}
+        {/* Lesson Intro */}
+        <Card className="mb-6">
+            <CardHeader>
+                <CardTitle>{lessonContent.title}</CardTitle>
+            </CardHeader>
+            <CardContent className="prose dark:prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{lessonContent.introduction}</ReactMarkdown>
+            </CardContent>
+        </Card>
+
+        {/* Sections */}
+        {lessonContent.sections.map((section, index) => (
+            <Card key={index} className="mb-6 border-l-4 border-primary/30"> {/* Visually group sections */}
+                <CardHeader>
+                    <CardTitle>Section {index + 1}: {section.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="prose dark:prose-invert max-w-none text-sm text-muted-foreground pl-2 border-l-2">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.introduction}</ReactMarkdown>
+                    </div>
+                    {/* Explanations */}
+                    {section.explanations.map((explanation, expIndex) => (
+                         <div key={expIndex} className="ml-4 border-l-2 pl-4 pt-2 pb-2">
+                           <p className="font-semibold">{explanation.topic}</p>
+                           <div className="prose dark:prose-invert max-w-none text-sm">
+                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{explanation.explanation}</ReactMarkdown>
+                           </div>
+                            {explanation.examples && explanation.examples.length > 0 && (
+                                <div className="mt-2">
+                                <p className="font-medium text-xs text-muted-foreground">Examples:</p>
+                                <ul className="list-disc list-inside text-xs ml-4">
+                                    {explanation.examples.map((ex, i) => <li key={i}>{ex}</li>)}
+                                </ul>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                     {/* Section Summary */}
+                     <div className="mt-4 pt-4 border-t">
+                         <p className="font-semibold text-sm">Section Summary</p>
+                         <p className="text-sm text-muted-foreground">{section.summary}</p>
+                     </div>
+                </CardContent>
+            </Card>
+        ))}
+
+        {/* Lesson Conclusion */}
+        <DisplayLessonConclusion lessonContent={lessonContent} />
+    </div>
+);
+
+// Type definition for the current step/view being displayed
+type CurrentView =
+    | { type: 'error'; data: string }
+    | { type: 'lesson'; data: LessonContent }
+    | { type: 'practice'; miniQuizzes: MiniQuizInfo[]; userSummaries: UserSummaryPromptInfo[] }
+    | { type: 'quizQuestion'; data: QuizQuestionType }
+    | { type: 'resultsSummary'; data: QuizFeedback }
+    | { type: 'resultItem'; data: QuizFeedbackItem; index: number; total: number }
+    | { type: 'loading'; message: string }
+    | { type: 'complete' };
+
+// --- Component to render the practice items ---
+const DisplayPracticeItems = ({ miniQuizzes, userSummaries }: { miniQuizzes: MiniQuizInfo[] | null, userSummaries: UserSummaryPromptInfo[] | null }) => (
+    <div className="h-full overflow-y-auto p-1 space-y-6"> {/* Scrollable container */}
+         <Card>
+            <CardHeader><CardTitle>Practice Time!</CardTitle></CardHeader>
+            <CardContent><CardDescription>Let's reinforce what you've learned with some quick checks and summaries.</CardDescription></CardContent>
+         </Card>
+
+        {/* Render Mini Quizzes */}
+        {miniQuizzes && miniQuizzes.length > 0 && (
+             <Card className="bg-secondary/30">
+                <CardHeader><CardTitle className="text-lg">Quick Checks</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    {miniQuizzes.map((mqInfo, index) => (
+                         <MiniQuiz key={`mq-${index}`} question={mqInfo.quiz_question} />
+                    ))}
+                </CardContent>
+            </Card>
+        )}
+
+        {/* Render User Summaries */}
+         {userSummaries && userSummaries.length > 0 && (
+            <Card className="bg-blue-50 dark:bg-blue-900/20">
+                <CardHeader><CardTitle className="text-lg">Summarize Key Concepts</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    {userSummaries.map((usInfo, index) => (
+                        <UserSummary key={`us-${index}`} sectionTitle={usInfo.section_title} topic={usInfo.topic} />
+                    ))}
+                </CardContent>
+            </Card>
+         )}
+
+         {(!miniQuizzes || miniQuizzes.length === 0) && (!userSummaries || userSummaries.length === 0) && (
+            <Alert>
+                <AlertTitle>No Practice Items</AlertTitle>
+                <AlertDescription>There are no interactive practice items for this lesson. Proceed to the final quiz when ready.</AlertDescription>
+            </Alert>
+         )}
+    </div>
+);
+
 export default function LearnPage() {
     const params = useParams();
     const router = useRouter();
@@ -204,13 +325,13 @@ export default function LearnPage() {
     // --- Select state slices individually from Zustand ---
     const lessonContent = useSessionStore(state => state.lessonContent);
     const quiz = useSessionStore(state => state.quiz);
+    const miniQuizzes = useSessionStore(state => state.miniQuizzes); // Get new state
+    const userSummaries = useSessionStore(state => state.userSummaries); // Get new state
     const quizFeedback = useSessionStore(state => state.quizFeedback);
     const loadingState = useSessionStore(state => state.loadingState);
     const error = useSessionStore(state => state.error);
     const loadingMessage = useSessionStore(state => state.loadingMessage);
     const learningStage = useSessionStore(state => state.learningStage);
-    const currentLessonSectionIndex = useSessionStore(state => state.currentLessonSectionIndex);
-    const currentLessonItemIndex = useSessionStore(state => state.currentLessonItemIndex);
     const currentQuizQuestionIndex = useSessionStore(state => state.currentQuizQuestionIndex);
     const currentResultItemIndex = useSessionStore(state => state.currentResultItemIndex);
     const totalQuizQuestions = useSessionStore(state => state.totalQuizQuestions);
@@ -226,6 +347,7 @@ export default function LearnPage() {
     const setUserQuizAnswer = useSessionStore(state => state.setUserQuizAnswer);
     const goToNextStep = useSessionStore(state => state.goToNextStep);
     const goToPreviousStep = useSessionStore(state => state.goToPreviousStep);
+    const setLearningStage = useSessionStore(state => state.setLearningStage);
 
     const [localLoading, setLocalLoading] = useState(true);
     const [hasInitialized, setHasInitialized] = useState(false); // Local flag for initialization
@@ -300,103 +422,58 @@ export default function LearnPage() {
         }
     }, [currentQuizQuestionIndex, learningStage, userQuizAnswers]);
 
-    const getCurrentStepContent = (): StepContent => {
+    // --- Determine the current view based on the learning stage ---
+    const getCurrentView = (): CurrentView => {
         if (loadingState === 'error') {
             return { type: 'error', data: error || 'An unknown error occurred' };
         }
-
-        if (learningStage === 'intro') {
-            if (lessonContent) {
-                return { type: 'lessonIntro', data: lessonContent };
-            } else {
-                return { type: 'error', data: 'Lesson content not loaded for intro stage.' };
-            }
+        
+        if (localLoading || loadingState === 'loading') {
+            return { type: 'loading', message: loadingMessage || 'Loading...'};
         }
 
-        if (learningStage === 'lesson' && lessonContent && currentLessonSectionIndex >= 0) {
-            const section = lessonContent.sections[currentLessonSectionIndex];
-            if (!section) return { type: 'error', data: `Invalid section index: ${currentLessonSectionIndex}` };
-
-            let cumulativeIndex = 0;
-
-            // 1. Section Intro
-            if (currentLessonItemIndex === cumulativeIndex) {
-                return { type: 'sectionIntro', data: section };
-            }
-            cumulativeIndex++;
-
-            // 2. Explanations, MiniQuizzes, UserSummaries
-            for (const explanation of section.explanations) {
-                // Explanation itself
-                if (currentLessonItemIndex === cumulativeIndex) {
-                    return { type: 'explanation', data: explanation, sectionTitle: section.title };
-                }
-                cumulativeIndex++;
-
-                // MiniQuiz (if exists)
-                if (explanation.mini_quiz && explanation.mini_quiz.length > 0) {
-                    // Display only the first mini quiz question for now per explanation step
-                    if (currentLessonItemIndex === cumulativeIndex) {
-                        return { type: 'miniQuiz', data: explanation.mini_quiz[0] };
-                    }
-                    cumulativeIndex++;
-                }
-
-                // UserSummary Prompt
-                if (currentLessonItemIndex === cumulativeIndex) {
-                    return { type: 'userSummary', data: { sectionTitle: section.title, topic: explanation.topic } };
-                }
-                cumulativeIndex++;
-            }
-
-            // 3. Section Summary
-            if (currentLessonItemIndex === cumulativeIndex) {
-                return { type: 'sectionSummary', data: section };
-            }
-
-            // If index is out of bounds for the section items
-            return { type: 'error', data: `Invalid item index ${currentLessonItemIndex} within section ${currentLessonSectionIndex}` };
+        if (learningStage === 'lesson') {
+             if (!lessonContent) return { type: 'error', data: 'Lesson content not loaded.' };
+             return { type: 'lesson', data: lessonContent };
         }
 
-        if (learningStage === 'conclusion') {
-            if (lessonContent) {
-                return { type: 'lessonConclusion', data: lessonContent };
-            } else {
-                return { type: 'error', data: 'Lesson content not loaded for conclusion stage.' };
+        if (learningStage === 'practice') {
+            // Requires miniQuizzes and userSummaries state variables from the store
+            if (!miniQuizzes && !userSummaries) return { type: 'error', data: 'Practice items not loaded.'};
+            return { type: 'practice', miniQuizzes: miniQuizzes ?? [], userSummaries: userSummaries ?? [] };
+        }
+        
+        if (learningStage === 'quiz') {
+            if (!quiz || !quiz.questions || quiz.questions.length <= currentQuizQuestionIndex) {
+                return { type: 'error', data: 'Quiz question not available.' };
             }
+            return { type: 'quizQuestion', data: quiz.questions[currentQuizQuestionIndex] };
         }
-
-        if (learningStage === 'quiz' && quiz && quiz.questions.length > currentQuizQuestionIndex) {
-            return {
-                type: 'quizQuestion',
-                data: quiz.questions[currentQuizQuestionIndex]
-            };
-        }
-
+        
         if (learningStage === 'results' && quizFeedback) {
+            // Display summary first
             if (currentResultItemIndex === 0) {
                 return { type: 'resultsSummary', data: quizFeedback };
             }
-            // Check index bounds for feedback items
-            if (currentResultItemIndex > 0 && currentResultItemIndex <= quizFeedback.feedback_items.length) {
+            // Then display individual feedback items
+            const feedbackItemIndex = currentResultItemIndex - 1;
+            if (feedbackItemIndex < quizFeedback.feedback_items.length) {
                 return {
                     type: 'resultItem',
-                    data: quizFeedback.feedback_items[currentResultItemIndex - 1],
-                    index: currentResultItemIndex,
+                    data: quizFeedback.feedback_items[feedbackItemIndex],
+                    index: feedbackItemIndex,
                     total: quizFeedback.feedback_items.length
                 };
-            } else {
-                return { type: 'error', data: `Invalid result item index: ${currentResultItemIndex}` };
             }
         }
 
         // If stage is 'complete' or none of the above match
         if (learningStage === 'complete') {
-            return { type: 'error', data: 'Lesson Complete!' }; // Placeholder
+            return { type: 'complete' };
         }
 
         // Fallback error for unhandled states
-        return { type: 'error', data: `Unhandled state: Stage=${learningStage}, Section=${currentLessonSectionIndex}, Item=${currentLessonItemIndex}` };
+        return { type: 'error', data: `Unhandled learning stage: ${learningStage}` };
     };
 
     // --- Interaction Handlers ---
@@ -404,65 +481,51 @@ export default function LearnPage() {
         if (isSubmitting) return;
 
         if (learningStage === 'quiz' && currentQuizAnswer !== undefined) {
-             setUserQuizAnswer(currentQuizQuestionIndex, parseInt(currentQuizAnswer, 10));
+            // Store the answer before moving to next question
+            setUserQuizAnswer(currentQuizQuestionIndex, parseInt(currentQuizAnswer));
         }
 
         if (learningStage === 'quiz' && currentQuizQuestionIndex === totalQuizQuestions - 1) {
-            if (!sessionId || !quiz) return;
-
-            const allAnswered = quiz.questions.every((_, index) => userQuizAnswers[index] !== undefined || (index === currentQuizQuestionIndex && currentQuizAnswer !== undefined));
-             if (!allAnswered) {
-                toast({ title: "Incomplete Quiz", description: "Please ensure all questions are answered before submitting.", variant: "destructive" });
-                 return;
-             }
-
+            // On last question, submit the quiz
             setIsSubmitting(true);
-            setLoading('loading', 'Submitting answers...');
-
-             const finalAnswers = {...userQuizAnswers};
-             if (currentQuizAnswer !== undefined) {
-                 finalAnswers[currentQuizQuestionIndex] = parseInt(currentQuizAnswer, 10);
-             }
-
-            const submissionData = {
-                quiz_title: quiz.title,
-                user_answers: Object.entries(finalAnswers).map(([qIndex, oIndex]) => ({
-                    question_index: parseInt(qIndex, 10),
-                    selected_option_index: oIndex,
-                })),
-            };
-
             try {
-                const feedback = await api.submitQuiz(sessionId, submissionData);
+                const answers: QuizUserAnswer[] = Object.entries(userQuizAnswers).map(([questionIndex, selectedOptionIndex]) => ({
+                    question_index: parseInt(questionIndex),
+                    selected_option_index: selectedOptionIndex
+                }));
+
+                const quizSubmission: QuizUserAnswers = {
+                    quiz_title: quiz!.title,
+                    user_answers: answers
+                };
+
+                const feedback = await api.submitQuiz(params.sessionId as string, quizSubmission);
                 setQuizFeedback(feedback);
-                setLoading('success');
-                useSessionStore.setState({ learningStage: 'results', currentResultItemIndex: 0 });
-                toast({ title: "Quiz Submitted!", description: "Results are now available." });
-            } catch (err: any) {
-                console.error("Failed to submit quiz:", err);
-                const errorMsg = err.response?.data?.detail || err.message || 'Failed to submit quiz.';
-                setError(errorMsg);
-                setLoading('error', errorMsg);
-                toast({ title: "Submission Failed", description: errorMsg, variant: "destructive" });
+                setLearningStage('results');
+            } catch (error) {
+                console.error('Error submitting quiz:', error);
+                setError('Failed to submit quiz. Please try again.');
             } finally {
-                 setIsSubmitting(false);
+                setIsSubmitting(false);
             }
         } else {
+            // Normal navigation
             goToNextStep();
-            setCurrentQuizAnswer(undefined);
         }
     };
 
     // --- Determine Button States ---
-    const isFirstStep = learningStage === 'intro' && currentLessonItemIndex === 0;
-    const isLastStep = learningStage === 'complete' || (learningStage === 'results' && currentResultItemIndex >= (quizFeedback?.feedback_items?.length ?? 0));
+    const isFirstStep = learningStage === 'lesson';
+    const totalResultItems = quizFeedback ? (quizFeedback.feedback_items.length + 1) : 0; // +1 for summary
+    const isLastStep = learningStage === 'complete' || (learningStage === 'results' && currentResultItemIndex >= totalResultItems - 1);
 
     const isNextDisabled = isSubmitting || loadingState === 'loading' || isLastStep ||
                           (learningStage === 'quiz' && currentQuizAnswer === undefined);
 
     const isPrevDisabled = isSubmitting || loadingState === 'loading' || isFirstStep;
 
-    const currentStepContent = getCurrentStepContent();
+    // Get the current view to render
+    const currentView = getCurrentView();
 
     // --- Loading and Error States ---
     if (localLoading || (loadingState === 'loading' && (!lessonContent || !quiz))) {
@@ -517,48 +580,33 @@ export default function LearnPage() {
                 {/* Use flex-grow to take available space, overflow-hidden is KEY */}
                 {/* Setting explicit height `h-full` on children might be needed if Card doesn't fill */}
                 <div className="flex-grow p-4 md:p-6 bg-background overflow-hidden relative">
-                    {/* --- Conditional Rendering Logic --- */}
-                    {/* --- ADD RENDERING FOR LESSON STEPS --- */}
-                    {currentStepContent.type === 'lessonIntro' && <DisplayLessonIntro lessonContent={currentStepContent.data} />}
-                    {currentStepContent.type === 'sectionIntro' && <DisplaySectionIntro section={currentStepContent.data} />}
-                    {currentStepContent.type === 'explanation' && <DisplayExplanation explanation={currentStepContent.data} sectionTitle={currentStepContent.sectionTitle} />}
-                    {currentStepContent.type === 'miniQuiz' && (
-                        <Card className="h-full flex flex-col">
-                            <CardContent className="flex-grow overflow-y-auto p-4">
-                                <MiniQuiz question={currentStepContent.data} />
-                            </CardContent>
-                        </Card>
-                    )}
-                    {currentStepContent.type === 'userSummary' && (
-                        <Card className="h-full flex flex-col">
-                            <CardContent className="flex-grow overflow-y-auto p-4">
-                                <UserSummary sectionTitle={currentStepContent.data.sectionTitle} topic={currentStepContent.data.topic} />
-                            </CardContent>
-                        </Card>
-                    )}
-                    {currentStepContent.type === 'sectionSummary' && <DisplaySectionSummary section={currentStepContent.data} />}
-                    {currentStepContent.type === 'lessonConclusion' && <DisplayLessonConclusion lessonContent={currentStepContent.data} />}
+                    {/* --- Conditional Rendering Logic based on currentView.type --- */}
 
-                    {/* Existing Quiz/Results Rendering */}
-                    {currentStepContent.type === 'quizQuestion' && (
+                    {currentView.type === 'loading' && <LoadingSpinner message={currentView.message} />}
+                    {currentView.type === 'error' && <DisplayError message={currentView.data} />}
+
+                    {currentView.type === 'lesson' && <DisplayFullLesson lessonContent={currentView.data} />}
+
+                    {currentView.type === 'practice' && <DisplayPracticeItems miniQuizzes={currentView.miniQuizzes} userSummaries={currentView.userSummaries} />}
+
+                    {currentView.type === 'quizQuestion' && (
                         <QuizQuestion
-                            question={currentStepContent.data}
+                            question={currentView.data}
                             index={currentQuizQuestionIndex}
                             total={totalQuizQuestions}
                             selectedValue={currentQuizAnswer}
                             onAnswerChange={(value) => setCurrentQuizAnswer(value)}
                         />
                     )}
-                    {currentStepContent.type === 'resultsSummary' && <DisplayResultsSummary feedback={currentStepContent.data} />}
-                    {currentStepContent.type === 'resultItem' && <DisplayResultFeedbackItem item={currentStepContent.data} index={currentStepContent.index} total={currentStepContent.total} />}
 
-                    {/* Error Display */}
-                    {currentStepContent.type === 'error' && (
-                        <Alert variant="destructive">
-                            <Terminal className="h-4 w-4" />
-                            <AlertTitle>Error</AlertTitle>
-                            <AlertDescription>{currentStepContent.data}</AlertDescription>
-                        </Alert>
+                    {currentView.type === 'resultsSummary' && <DisplayResultsSummary feedback={currentView.data} />}
+                    {currentView.type === 'resultItem' && <DisplayResultFeedbackItem item={currentView.data} index={currentView.index} total={currentView.total} />}
+
+                    {currentView.type === 'complete' && (
+                        <Card className="h-full flex flex-col items-center justify-center">
+                            <CardHeader><CardTitle>Lesson Complete!</CardTitle></CardHeader>
+                            <CardContent><CardDescription>You have finished this learning session.</CardDescription></CardContent>
+                        </Card>
                     )}
                 </div>
 

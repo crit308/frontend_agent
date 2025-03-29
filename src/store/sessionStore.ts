@@ -5,7 +5,7 @@ import {
   Quiz,
   QuizFeedback,
   SessionAnalysis,
-  QuizUserAnswers, // Needed for submission
+  QuizQuestion, // Needed for mini-quiz typing
   LoadingState,
 } from '@/lib/types';
 
@@ -20,12 +20,23 @@ const countLessonItems = (lessonContent: LessonContent | null): number => {
             count += exp.mini_quiz?.length ?? 0; // Each mini-quiz
             count++; // Each user summary prompt
         });
-        // count += section.exercises.length; // Exercises might be grouped or skipped in step-by-step
         count++; // Section Summary
     });
     count++; // Lesson Conclusion
     return count;
 };
+
+// Define interfaces matching backend additions (or import if possible)
+interface MiniQuizInfo {
+  related_section_title: string;
+  related_topic: string;
+  quiz_question: QuizQuestion;
+}
+
+interface UserSummaryPromptInfo {
+  section_title: string;
+  topic: string;
+}
 
 interface SessionState {
   sessionId: string | null;
@@ -34,20 +45,21 @@ interface SessionState {
   lessonPlan: LessonPlan | null;
   lessonContent: LessonContent | null;
   quiz: Quiz | null;
+  // Separate lists for practice phase items
+  miniQuizzes: MiniQuizInfo[] | null; // Store the collected mini quizzes
+  userSummaries: UserSummaryPromptInfo[] | null; // Store the collected summary prompts
   quizFeedback: QuizFeedback | null;
   sessionAnalysis: SessionAnalysis | null;
 
   // UI State
   userQuizAnswers: { [key: number]: number }; // Store answers: { questionIndex: selectedOptionIndex }
   isSubmittingQuiz: boolean; // Track quiz submission API call
-  learningStage: 'intro' | 'lesson' | 'quiz' | 'results' | 'conclusion' | 'complete';
-  currentLessonSectionIndex: number;
-  currentLessonItemIndex: number; // Represents item within a section (explanation, quiz, summary) or top-level items
+  // Updated Learning Stages
+  learningStage: 'lesson' | 'practice' | 'quiz' | 'results' | 'complete';
+  // Removed section/item indices, navigation is between stages now
   currentQuizQuestionIndex: number;
   currentResultItemIndex: number; // For paginating results feedback
-  totalLessonItems: number; // Rough count for potential progress calculation
   totalQuizQuestions: number;
-  currentStep: 'upload' | 'generating' | 'lesson' | 'quiz' | 'results' | 'analysis';
   loadingState: LoadingState;
   loadingMessage: string;
   error: string | null;
@@ -58,17 +70,18 @@ interface SessionState {
   setUploadedFiles: (files: File[]) => void;
   setLessonPlan: (plan: LessonPlan | null) => void;
   setLessonContent: (content: LessonContent | null) => void;
+  // setMiniQuizzes: (quizzes: MiniQuizInfo[] | null) => void; // Setters for new state
+  // setUserSummaries: (summaries: UserSummaryPromptInfo[] | null) => void;
   setQuiz: (quiz: Quiz | null) => void;
   setQuizFeedback: (feedback: QuizFeedback | null) => void;
   setUserQuizAnswer: (questionIndex: number, answerIndex: number) => void;
   setSessionAnalysis: (analysis: SessionAnalysis | null) => void;
-  setCurrentStep: (step: SessionState['currentStep']) => void;
   setLoading: (state: LoadingState, message?: string) => void;
   setError: (error: string | null) => void;
   setLearningStage: (stage: SessionState['learningStage']) => void;
   initializeStepIndices: (lessonContent: LessonContent | null, quiz: Quiz | null) => void;
-  goToNextStep: () => void; // Basic structure, logic refinement in Phase 3/4
-  goToPreviousStep: () => void; // Basic structure
+  goToNextStep: () => void;
+  goToPreviousStep: () => void;
   resetSession: () => void;
 }
 
@@ -79,19 +92,17 @@ export const useSessionStore = create<SessionState>((set) => ({
   uploadedFiles: [],
   lessonPlan: null,
   lessonContent: null,
+  miniQuizzes: null,
+  userSummaries: null,
   userQuizAnswers: {},
   isSubmittingQuiz: false,
-  learningStage: 'intro',
-  currentLessonSectionIndex: -1,
-  currentLessonItemIndex: 0,
+  learningStage: 'lesson',
   currentQuizQuestionIndex: 0,
   currentResultItemIndex: 0,
-  totalLessonItems: 0,
   totalQuizQuestions: 0,
   quiz: null,
   quizFeedback: null,
   sessionAnalysis: null,
-  currentStep: 'upload',
   loadingState: 'idle',
   loadingMessage: '',
   error: null,
@@ -101,7 +112,13 @@ export const useSessionStore = create<SessionState>((set) => ({
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
   setUploadedFiles: (files) => set({ uploadedFiles: files }),
   setLessonPlan: (plan) => set({ lessonPlan: plan }),
-  setLessonContent: (content) => set({ lessonContent: content }),
+  setLessonContent: (content) => set((state) => {
+    const miniQuizzes = content?.mini_quizzes ?? null;
+    const userSummaries = content?.user_summary_prompts ?? null;
+    return { lessonContent: content, miniQuizzes, userSummaries };
+  }),
+  // setMiniQuizzes: (quizzes) => set({ miniQuizzes: quizzes }), // Direct setters if needed elsewhere
+  // setUserSummaries: (summaries) => set({ userSummaries: summaries }),
   setQuiz: (quiz) => set({ quiz: quiz }),
   setQuizFeedback: (feedback) => set({ quizFeedback: feedback }),
   setUserQuizAnswer: (questionIndex, answerIndex) => set((state) => ({
@@ -111,7 +128,6 @@ export const useSessionStore = create<SessionState>((set) => ({
       },
   })),
   setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
-  setCurrentStep: (step) => set({ currentStep: step }),
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
   setLearningStage: (stage) => set({ learningStage: stage }),
@@ -120,149 +136,95 @@ export const useSessionStore = create<SessionState>((set) => ({
       const numLessonItems = countLessonItems(lessonContent);
       const numQuizQuestions = quiz?.questions?.length ?? 0;
       return {
-        learningStage: 'intro',
-        currentLessonSectionIndex: -1,
-        currentLessonItemIndex: 0,
+        learningStage: 'lesson',
         currentQuizQuestionIndex: 0,
         currentResultItemIndex: 0,
-        totalLessonItems: numLessonItems,
         totalQuizQuestions: numQuizQuestions,
       };
   }),
   
   // --- Navigation Logic (Refined for Phase 4) ---
   goToNextStep: () => set((state) => {
-      const { lessonContent, quiz, learningStage, currentLessonSectionIndex, currentLessonItemIndex, currentQuizQuestionIndex, currentResultItemIndex, totalQuizQuestions, quizFeedback } = state;
+      const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, totalQuizQuestions, quizFeedback, quiz, miniQuizzes, userSummaries } = state;
+      const hasPracticeItems = (miniQuizzes && miniQuizzes.length > 0) || (userSummaries && userSummaries.length > 0);
 
-      if (learningStage === 'intro') {
-          // Move from lesson intro to the first section's intro
-          if (lessonContent && lessonContent.sections.length > 0) {
-                return { learningStage: 'lesson', currentLessonSectionIndex: 0, currentLessonItemIndex: 0 };
-          } else { // No sections, maybe jump to conclusion?
-                return { learningStage: 'conclusion', currentLessonSectionIndex: -1, currentLessonItemIndex: 0 };
+      if (learningStage === 'lesson') {
+          // Move from lesson to practice (if items exist) or quiz
+          if (hasPracticeItems) {
+              return { learningStage: 'practice' };
+          } else if (quiz && totalQuizQuestions > 0) {
+             return { learningStage: 'quiz', currentQuizQuestionIndex: 0 };
+          } else {
+             return { learningStage: 'complete' };
           }
       }
-      else if (learningStage === 'lesson') {
-           if (!lessonContent) return {}; // Should not happen if stage is 'lesson'
-           const section = lessonContent.sections[currentLessonSectionIndex];
-           let maxItemIndex = 0; // Section Intro
-           section.explanations.forEach(exp => {
-               maxItemIndex++; // Explanation
-               if (exp.mini_quiz && exp.mini_quiz.length > 0) maxItemIndex++; // MiniQuiz
-               maxItemIndex++; // UserSummary
-           });
-           // maxItemIndex++; // Exercises (if added)
-           maxItemIndex++; // Section Summary
-
-           if (currentLessonItemIndex < maxItemIndex) {
-               // Advance within the section
-               return { currentLessonItemIndex: currentLessonItemIndex + 1 };
-           } else {
-               // Move to the next section or to conclusion
-               if (currentLessonSectionIndex < lessonContent.sections.length - 1) {
-                   // Go to next section's intro
-                   return { currentLessonSectionIndex: currentLessonSectionIndex + 1, currentLessonItemIndex: 0 };
-               } else {
-                   // Finished last section, go to lesson conclusion
-                   return { learningStage: 'conclusion', currentLessonSectionIndex: -1, currentLessonItemIndex: 0 };
-               }
-           }
-      }
-      else if (learningStage === 'conclusion') {
-          // After lesson conclusion, move to quiz
+      else if (learningStage === 'practice') {
+          // Move from practice to quiz
           if (quiz && totalQuizQuestions > 0) {
              return { learningStage: 'quiz', currentQuizQuestionIndex: 0 };
           } else {
-             // No quiz, maybe mark as complete?
              return { learningStage: 'complete' };
           }
       }
       else if (learningStage === 'quiz') {
-         // Logic for quiz submission is handled in the component now
+         // Logic for quiz submission is handled in the component
          if (currentQuizQuestionIndex < totalQuizQuestions - 1) {
-             // Go to next question
              return { currentQuizQuestionIndex: currentQuizQuestionIndex + 1 };
          } else {
-             // Last question was just answered, component will trigger submission
-             // Do nothing here, wait for submission result to change stage
+             // On last question, component triggers submission. State change handled by submission success.
              console.log("On last quiz question, submission should be triggered by component.");
              return {};
          }
-      } else if (state.learningStage === 'results') {
-         // Navigate through result items (Summary + Feedback Items)
+      } else if (learningStage === 'results') {
+         // Navigate through result items
          const totalResultItems = (quizFeedback?.feedback_items?.length ?? 0) + 1; // +1 for summary
          if (currentResultItemIndex < totalResultItems - 1) {
             return { currentResultItemIndex: currentResultItemIndex + 1 };
          } else {
-            // Reached end of results pagination
-            // Optionally move to a final 'complete' state or analysis trigger
             console.log("End of results reached.");
-             return { learningStage: 'complete' }; // Example: Mark as complete
+            return { learningStage: 'complete' };
          }
       }
       return {}; // Default no change
   }),
 
   goToPreviousStep: () => set((state) => {
-        const { lessonContent, quiz, learningStage, currentLessonSectionIndex, currentLessonItemIndex, currentQuizQuestionIndex, currentResultItemIndex } = state;
+        const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, quiz, miniQuizzes, userSummaries } = state;
+        const hasPracticeItems = (miniQuizzes && miniQuizzes.length > 0) || (userSummaries && userSummaries.length > 0);
 
-       if (learningStage === 'lesson') {
-            if (currentLessonItemIndex > 0) {
-                // Go back within the current section
-                return { currentLessonItemIndex: currentLessonItemIndex - 1 };
+       if (learningStage === 'practice') {
+            // Go back from practice to lesson
+           return { learningStage: 'lesson' };
+        } else if (learningStage === 'quiz') {
+            if (currentQuizQuestionIndex > 0) {
+                // Go back to previous question
+                return { currentQuizQuestionIndex: currentQuizQuestionIndex - 1 };
             } else {
-                // At the start of a section, go to the previous section's *last* item or to intro
-                if (currentLessonSectionIndex > 0) {
-                    const prevSectionIndex = currentLessonSectionIndex - 1;
-                    const prevSection = lessonContent!.sections[prevSectionIndex];
-                    // Calculate last item index of previous section (similar to goToNextStep logic)
-                     let maxPrevItemIndex = 0;
-                     prevSection.explanations.forEach(exp => {maxPrevItemIndex+=2; if(exp.mini_quiz) maxPrevItemIndex++;});
-                     maxPrevItemIndex++; // Section Summary
-                    return { currentLessonSectionIndex: prevSectionIndex, currentLessonItemIndex: maxPrevItemIndex };
+                // Go back from first quiz question to practice (if exists) or lesson
+                if (hasPracticeItems) {
+                    return { learningStage: 'practice' };
                 } else {
-                    // Go back to lesson intro
-                    return { learningStage: 'intro', currentLessonSectionIndex: -1, currentLessonItemIndex: 0 };
+                    return { learningStage: 'lesson' };
                 }
             }
-       } else if (learningStage === 'conclusion') {
-            // Go back to the last item of the last lesson section
-            if (lessonContent && lessonContent.sections.length > 0) {
-                 const lastSectionIndex = lessonContent.sections.length - 1;
-                 const lastSection = lessonContent.sections[lastSectionIndex];
-                 let maxLastItemIndex = 0;
-                 lastSection.explanations.forEach(exp => {maxLastItemIndex+=2; if(exp.mini_quiz) maxLastItemIndex++;});
-                 maxLastItemIndex++; // Section Summary
-                 return { learningStage: 'lesson', currentLessonSectionIndex: lastSectionIndex, currentLessonItemIndex: maxLastItemIndex };
-            } else { // No sections, go back to intro
-                 return { learningStage: 'intro', currentLessonSectionIndex: -1, currentLessonItemIndex: 0 };
+        } else if (learningStage === 'results') {
+            if (currentResultItemIndex > 0) {
+                // Go back through result items
+                return { currentResultItemIndex: currentResultItemIndex - 1 };
+            } else {
+                // Go back from results summary to last quiz question
+                if (quiz && state.totalQuizQuestions > 0) {
+                   return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions - 1 };
+                } else if (hasPracticeItems) { // Fallback to practice if no quiz
+                   return { learningStage: 'practice' };
+                } else { // Fallback to lesson if no quiz/practice
+                   return { learningStage: 'lesson' };
+                }
             }
-       } else if (learningStage === 'quiz') {
-           if (currentQuizQuestionIndex > 0) {
-               // Go back to previous question
-               return { currentQuizQuestionIndex: currentQuizQuestionIndex - 1 };
-           } else {
-               // Go back from first question to lesson conclusion
-               return { learningStage: 'conclusion', currentLessonSectionIndex: -1, currentLessonItemIndex: 0 };
-           }
-       } else if (learningStage === 'results') {
-           if (currentResultItemIndex > 0) {
-               // Go back through result items
-               return { currentResultItemIndex: currentResultItemIndex - 1 };
-           } else {
-               // Go back from results summary to last quiz question (allow review?)
-               // Or maybe prevent going back from results? Design choice.
-               // Example: Go back to last quiz question
-               if (quiz && state.totalQuizQuestions > 0) {
-                  return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions - 1 };
-               } else { // Fallback to conclusion if no quiz
-                   return { learningStage: 'conclusion', currentLessonSectionIndex: -1, currentLessonItemIndex: 0 };
-               }
-           }
-       }
-      // Cannot go back from 'intro' or 'complete'
-      return {};
-  }),
+        }
+        // Cannot go back from 'lesson' or 'complete'
+        return {};
+    }),
 
   resetSession: () => set({
     sessionId: null,
@@ -275,16 +237,12 @@ export const useSessionStore = create<SessionState>((set) => ({
     sessionAnalysis: null,
     userQuizAnswers: {},
     isSubmittingQuiz: false,
-    learningStage: 'intro',
-    currentLessonSectionIndex: -1,
-    currentLessonItemIndex: 0,
+    learningStage: 'lesson',
     currentQuizQuestionIndex: 0,
     currentResultItemIndex: 0,
-    totalLessonItems: 0,
     totalQuizQuestions: 0,
-    currentStep: 'upload',
     loadingState: 'idle',
     loadingMessage: '',
     error: null,
   }),
-})); 
+}));

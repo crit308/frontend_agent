@@ -62,6 +62,20 @@ export interface LessonContent {
   sections: SectionContent[];
   conclusion: string;
   next_steps: string[];
+  mini_quizzes?: MiniQuizInfo[];
+  user_summary_prompts?: UserSummaryPromptInfo[];
+}
+
+// Practice Phase Types
+export interface MiniQuizInfo {
+  related_section_title: string;
+  related_topic: string;
+  quiz_question: QuizQuestion;
+}
+
+export interface UserSummaryPromptInfo {
+  section_title: string;
+  topic: string;
 }
 
 // --- Quiz & Feedback ---
