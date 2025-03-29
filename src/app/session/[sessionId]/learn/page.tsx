@@ -504,7 +504,7 @@ export default function LearnPage() {
         <div className="flex h-screen bg-muted/40">
             {/* Left Column - Phase 1 Styling (Empty) */}
             {/* Ensure it doesn't collapse and maintains width */}
-            <div className="w-1/4 lg:w-1/3 flex-shrink-0 bg-gray-100 dark:bg-gray-900/50 border-r border-border/50">
+            <div className="w-1/6 lg:w-1/5 flex-shrink-0 bg-gray-100 dark:bg-gray-900/50 border-r border-border/50">
                 {/* Intentionally empty - Add padding or a subtle element if needed for visual separation */}
                 <div className="p-4 h-full">
                     {/* Maybe a placeholder title or subtle graphic later */}
