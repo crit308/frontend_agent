@@ -56,8 +56,8 @@ export default function UploadPage() {
 
       setLoading('success', 'Preparation complete!');
 
-      // 4. Navigate to the lesson page (or a generation status page first)
-      router.push(`/session/${currentSessionId}/lesson`); // Navigate to lesson page
+      // 4. Navigate to the learn page
+      router.push(`/session/${currentSessionId}/learn`);
 
     } catch (error: any) {
       console.error("Upload failed:", error);
