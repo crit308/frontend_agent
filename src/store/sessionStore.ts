@@ -1,80 +1,20 @@
 import { create } from 'zustand';
 import {
-  LessonPlan,
   LessonContent,
   Quiz,
   QuizFeedback,
-  SessionAnalysis,
-  QuizQuestion,
   LoadingState,
-  MiniQuizInfo,
-  UserSummaryPromptInfo,
   QuizUserAnswer,
   QuizUserAnswers,
   QuizFeedbackItem,
   SectionContent,
   ExplanationContent,
+  QuizQuestion,
+  SessionAnalysis
 } from '@/lib/types';
 
-// Define a type for each possible step in the learning flow
-type LearningStep =
-  | { type: 'lessonIntro' }
-  | { type: 'sectionIntro'; sectionIndex: number }
-  | { type: 'explanation'; sectionIndex: number; explanationIndex: number }
-  | { type: 'miniQuiz'; sectionIndex: number; explanationIndex: number; quizIndex: number }
-  | { type: 'userSummary'; sectionIndex: number; explanationIndex: number }
-  | { type: 'sectionSummary'; sectionIndex: number }
-  | { type: 'lessonConclusion' }
-  | { type: 'quizQuestion'; quizQuestionIndex: number }
-  | { type: 'resultsSummary' }
-  | { type: 'resultItem'; resultItemIndex: number };
-
-// Helper to build the steps array
-const buildLearningSteps = (lessonContent: LessonContent | null, quiz: Quiz | null, quizFeedback: QuizFeedback | null): LearningStep[] => {
-  const steps: LearningStep[] = [];
-
-  if (lessonContent) {
-    steps.push({ type: 'lessonIntro' });
-
-    lessonContent.sections.forEach((section, sectionIndex) => {
-      steps.push({ type: 'sectionIntro', sectionIndex });
-
-      section.explanations.forEach((explanation, explanationIndex) => {
-        steps.push({ type: 'explanation', sectionIndex, explanationIndex });
-
-        // Add mini-quizzes associated with this explanation
-        explanation.mini_quiz?.forEach((_, quizIndex) => {
-           steps.push({ type: 'miniQuiz', sectionIndex, explanationIndex, quizIndex });
-        });
-
-        // Add user summary prompt after explanation and its mini-quizzes
-        steps.push({ type: 'userSummary', sectionIndex, explanationIndex });
-      });
-
-      steps.push({ type: 'sectionSummary', sectionIndex });
-    });
-
-    steps.push({ type: 'lessonConclusion' });
-  }
-
-  if (quiz && quiz.questions.length > 0) {
-    quiz.questions.forEach((_, index) => {
-      steps.push({ type: 'quizQuestion', quizQuestionIndex: index });
-    });
-  }
-
-  if (quizFeedback) {
-    steps.push({ type: 'resultsSummary' });
-    quizFeedback.feedback_items.forEach((_, index) => {
-      steps.push({ type: 'resultItem', resultItemIndex: index });
-    });
-  }
-
-  return steps;
-};
-
 interface SessionState {
-  // Core state
+  // Core data state
   sessionId: string | null;
   vectorStoreId: string | null;
   lessonContent: LessonContent | null;
@@ -87,9 +27,11 @@ interface SessionState {
   sessionAnalysis: SessionAnalysis | null;
   isSubmittingQuiz: boolean;
 
-  // Learning steps state
-  learningSteps: LearningStep[];
-  currentStepIndex: number;
+  // --- Stage-Based Navigation ---
+  learningStage: 'lesson' | 'quiz' | 'results' | 'complete';
+  currentQuizQuestionIndex: number; // Index within the 'quiz' stage
+  currentResultItemIndex: number; // Index within the 'results' stage (0 = summary, 1+ = feedback items)
+  totalQuizQuestions: number; // Still useful for quiz stage
 
   // Actions
   setSessionId: (sessionId: string) => void;
@@ -103,8 +45,8 @@ interface SessionState {
   setSessionAnalysis: (analysis: SessionAnalysis | null) => void;
   setIsSubmittingQuiz: (isSubmitting: boolean) => void;
 
-  // Learning steps actions
-  initializeLearningSteps: (lessonContent: LessonContent | null, quiz: Quiz | null, quizFeedback: QuizFeedback | null) => void;
+  // --- Modified Actions ---
+  setLearningStage: (stage: SessionState['learningStage']) => void;
   goToNextStep: () => void;
   goToPreviousStep: () => void;
   resetSession: () => void;
@@ -117,40 +59,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   lessonContent: null,
   quiz: null,
   quizFeedback: null,
+  sessionAnalysis: null,
   userQuizAnswers: {},
   isSubmittingQuiz: false,
   loadingState: 'idle',
   loadingMessage: '',
   error: null,
-  sessionAnalysis: null,
 
-  // Learning steps state
-  learningSteps: [],
-  currentStepIndex: 0,
+  // --- Stage-Based State ---
+  learningStage: 'lesson', // Start at the lesson view
+  currentQuizQuestionIndex: 0,
+  currentResultItemIndex: 0,
+  totalQuizQuestions: 0,
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
-  setLessonContent: (content) => set((state) => ({
+
+  setLessonContent: (content) => set({
       lessonContent: content,
-      // Automatically rebuild steps when content changes
-      learningSteps: buildLearningSteps(content, state.quiz, state.quizFeedback),
-      currentStepIndex: 0, // Reset index when content changes
-  })),
-  setQuiz: (quiz) => set((state) => ({
+      learningStage: 'lesson', // Reset to lesson stage when new content loads
+      currentQuizQuestionIndex: 0,
+      currentResultItemIndex: 0,
+      userQuizAnswers: {}, // Clear previous answers
+      quizFeedback: null,  // Clear previous feedback
+  }),
+  setQuiz: (quiz) => set({
       quiz: quiz,
-      // Automatically rebuild steps when quiz changes
-      learningSteps: buildLearningSteps(state.lessonContent, quiz, state.quizFeedback),
-      // Don't reset index if only quiz is added/changed, unless current step is beyond lesson
-      currentStepIndex: state.currentStepIndex,
-  })),
-  setQuizFeedback: (feedback) => set((state) => ({
+      totalQuizQuestions: quiz?.questions?.length ?? 0,
+      // Don't automatically change stage here, wait for user navigation
+  }),
+  setQuizFeedback: (feedback) => set({
       quizFeedback: feedback,
-      // Automatically rebuild steps when feedback changes
-      learningSteps: buildLearningSteps(state.lessonContent, state.quiz, feedback),
-      // Jump to the results summary step when feedback arrives
-      currentStepIndex: state.learningSteps.findIndex(step => step.type === 'resultsSummary'),
-  })),
+      learningStage: 'results', // Jump to results stage when feedback arrives
+      currentResultItemIndex: 0, // Start at the summary
+  }),
   setUserQuizAnswer: (questionIndex, answerIndex) => set((state) => ({
       userQuizAnswers: {
           ...state.userQuizAnswers,
@@ -161,33 +104,79 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
+  setLearningStage: (stage) => set({ learningStage: stage }),
 
-  initializeLearningSteps: (lessonContent, quiz, quizFeedback) => set({
-      learningSteps: buildLearningSteps(lessonContent, quiz, quizFeedback),
-      currentStepIndex: 0,
-  }),
-
+  // --- Revised Navigation Logic ---
   goToNextStep: () => set((state) => {
-      const nextIndex = state.currentStepIndex + 1;
-      if (nextIndex < state.learningSteps.length) {
-          return { currentStepIndex: nextIndex };
+      const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, totalQuizQuestions, quiz, quizFeedback } = state;
+
+      if (learningStage === 'lesson') {
+          if (quiz && totalQuizQuestions > 0) {
+              return { learningStage: 'quiz', currentQuizQuestionIndex: 0 };
+          } else {
+              return { learningStage: 'complete' }; // Skip quiz if none exists
+          }
       }
-      // Reached the end - potentially mark as complete or do nothing
-      console.log("Reached end of learning steps.");
-      return {}; // No change if already at the end
+      else if (learningStage === 'quiz') {
+         // Quiz submission is handled in the component
+         if (currentQuizQuestionIndex < totalQuizQuestions - 1) {
+             return { currentQuizQuestionIndex: currentQuizQuestionIndex + 1 };
+         } else {
+             // Logic to trigger submission should be in component,
+             // successful submission will set feedback and change stage to 'results'
+             console.log("On last quiz question, component should trigger submission.");
+             return {}; // Stay on last question until submitted
+         }
+      } else if (learningStage === 'results') {
+         const totalResultItems = (quizFeedback?.feedback_items?.length ?? 0) + 1; // +1 for summary
+         if (currentResultItemIndex < totalResultItems - 1) {
+            return { currentResultItemIndex: currentResultItemIndex + 1 };
+         } else {
+            return { learningStage: 'complete' }; // Move to complete after last result item
+         }
+      }
+      // Cannot go next from 'complete'
+      return {};
   }),
 
   goToPreviousStep: () => set((state) => {
-      const prevIndex = state.currentStepIndex - 1;
-      if (prevIndex >= 0) {
-          return { currentStepIndex: prevIndex };
-      }
-      // At the beginning - do nothing
-      console.log("Already at the first learning step.");
-      return {}; // No change if already at the start
-  }),
+        const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, quiz, quizFeedback } = state;
+
+        if (learningStage === 'quiz') {
+            if (currentQuizQuestionIndex > 0) {
+                return { currentQuizQuestionIndex: currentQuizQuestionIndex - 1 };
+            } else {
+                // Go back from first quiz question to lesson
+                return { learningStage: 'lesson' };
+            }
+        } else if (learningStage === 'results') {
+            if (currentResultItemIndex > 0) {
+                return { currentResultItemIndex: currentResultItemIndex - 1 };
+            } else {
+                // Go back from results summary to last quiz question
+                 if (quiz && state.totalQuizQuestions > 0) {
+                   return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions - 1 };
+                 } else { // Fallback to lesson if no quiz somehow
+                     return { learningStage: 'lesson' };
+                 }
+            }
+        } else if (learningStage === 'complete') {
+             // Go back from complete to last result item or last quiz question or lesson
+             if (quizFeedback) {
+                 const totalResultItems = (quizFeedback.feedback_items.length) + 1;
+                 return { learningStage: 'results', currentResultItemIndex: totalResultItems - 1};
+             } else if (quiz) {
+                  return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions -1 };
+             } else {
+                  return { learningStage: 'lesson' };
+             }
+        }
+        // Cannot go back from 'lesson'
+        return {};
+    }),
 
   resetSession: () => set({
+    // ... reset core data ...
     sessionId: null,
     vectorStoreId: null,
     lessonContent: null,
@@ -196,10 +185,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     sessionAnalysis: null,
     userQuizAnswers: {},
     isSubmittingQuiz: false,
-    learningSteps: [],
-    currentStepIndex: 0,
     loadingState: 'idle',
     loadingMessage: '',
     error: null,
+    // --- Reset Stage-Based State ---
+    learningStage: 'lesson',
+    currentQuizQuestionIndex: 0,
+    currentResultItemIndex: 0,
+    totalQuizQuestions: 0,
   }),
 }));
