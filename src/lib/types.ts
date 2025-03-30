@@ -34,6 +34,8 @@ export interface QuizQuestion {
   related_section: string;
 }
 
+// --- REMOVE or COMMENT OUT these interfaces ---
+/*
 export interface ExplanationContent {
   topic: string;
   explanation: string;
@@ -56,17 +58,6 @@ export interface SectionContent {
   summary: string;
 }
 
-export interface LessonContent {
-  title: string;
-  introduction: string;
-  sections: SectionContent[];
-  conclusion: string;
-  next_steps: string[];
-  mini_quizzes?: MiniQuizInfo[];
-  user_summary_prompts?: UserSummaryPromptInfo[];
-}
-
-// Practice Phase Types
 export interface MiniQuizInfo {
   related_section_title: string;
   related_topic: string;
@@ -76,6 +67,15 @@ export interface MiniQuizInfo {
 export interface UserSummaryPromptInfo {
   section_title: string;
   topic: string;
+}
+*/
+// --- End interfaces to remove/comment ---
+
+// --- MODIFIED LessonContent Interface ---
+export interface LessonContent {
+  title: string;
+  text: string;
+  // Remove: introduction, sections, conclusion, next_steps, mini_quizzes, user_summary_prompts
 }
 
 // --- Quiz & Feedback ---
