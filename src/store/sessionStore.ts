@@ -5,122 +5,152 @@ import {
   Quiz,
   QuizFeedback,
   SessionAnalysis,
-  QuizQuestion, // Needed for mini-quiz typing
+  QuizQuestion,
   LoadingState,
+  MiniQuizInfo,
+  UserSummaryPromptInfo,
+  QuizUserAnswer,
+  QuizUserAnswers,
+  QuizFeedbackItem,
+  SectionContent,
+  ExplanationContent,
 } from '@/lib/types';
 
-// Helper function to count total items in a lesson (can be adjusted based on exact flow)
-const countLessonItems = (lessonContent: LessonContent | null): number => {
-    if (!lessonContent) return 0;
-    let count = 1; // Start with lesson intro
-    lessonContent.sections.forEach(section => {
-        count++; // Section Intro
-        count += section.explanations.length; // Each explanation
-        section.explanations.forEach(exp => {
-            count += exp.mini_quiz?.length ?? 0; // Each mini-quiz
-            count++; // Each user summary prompt
+// Define a type for each possible step in the learning flow
+type LearningStep =
+  | { type: 'lessonIntro' }
+  | { type: 'sectionIntro'; sectionIndex: number }
+  | { type: 'explanation'; sectionIndex: number; explanationIndex: number }
+  | { type: 'miniQuiz'; sectionIndex: number; explanationIndex: number; quizIndex: number }
+  | { type: 'userSummary'; sectionIndex: number; explanationIndex: number }
+  | { type: 'sectionSummary'; sectionIndex: number }
+  | { type: 'lessonConclusion' }
+  | { type: 'quizQuestion'; quizQuestionIndex: number }
+  | { type: 'resultsSummary' }
+  | { type: 'resultItem'; resultItemIndex: number };
+
+// Helper to build the steps array
+const buildLearningSteps = (lessonContent: LessonContent | null, quiz: Quiz | null, quizFeedback: QuizFeedback | null): LearningStep[] => {
+  const steps: LearningStep[] = [];
+
+  if (lessonContent) {
+    steps.push({ type: 'lessonIntro' });
+
+    lessonContent.sections.forEach((section, sectionIndex) => {
+      steps.push({ type: 'sectionIntro', sectionIndex });
+
+      section.explanations.forEach((explanation, explanationIndex) => {
+        steps.push({ type: 'explanation', sectionIndex, explanationIndex });
+
+        // Add mini-quizzes associated with this explanation
+        explanation.mini_quiz?.forEach((_, quizIndex) => {
+           steps.push({ type: 'miniQuiz', sectionIndex, explanationIndex, quizIndex });
         });
-        count++; // Section Summary
+
+        // Add user summary prompt after explanation and its mini-quizzes
+        steps.push({ type: 'userSummary', sectionIndex, explanationIndex });
+      });
+
+      steps.push({ type: 'sectionSummary', sectionIndex });
     });
-    count++; // Lesson Conclusion
-    return count;
+
+    steps.push({ type: 'lessonConclusion' });
+  }
+
+  if (quiz && quiz.questions.length > 0) {
+    quiz.questions.forEach((_, index) => {
+      steps.push({ type: 'quizQuestion', quizQuestionIndex: index });
+    });
+  }
+
+  if (quizFeedback) {
+    steps.push({ type: 'resultsSummary' });
+    quizFeedback.feedback_items.forEach((_, index) => {
+      steps.push({ type: 'resultItem', resultItemIndex: index });
+    });
+  }
+
+  return steps;
 };
 
-// Define interfaces matching backend additions (or import if possible)
-interface MiniQuizInfo {
-  related_section_title: string;
-  related_topic: string;
-  quiz_question: QuizQuestion;
-}
-
-interface UserSummaryPromptInfo {
-  section_title: string;
-  topic: string;
-}
-
 interface SessionState {
+  // Core state
   sessionId: string | null;
   vectorStoreId: string | null;
-  uploadedFiles: File[];
-  lessonPlan: LessonPlan | null;
   lessonContent: LessonContent | null;
   quiz: Quiz | null;
-  // Separate lists for practice phase items
-  miniQuizzes: MiniQuizInfo[] | null; // Store the collected mini quizzes
-  userSummaries: UserSummaryPromptInfo[] | null; // Store the collected summary prompts
   quizFeedback: QuizFeedback | null;
-  sessionAnalysis: SessionAnalysis | null;
-
-  // UI State
-  userQuizAnswers: { [key: number]: number }; // Store answers: { questionIndex: selectedOptionIndex }
-  isSubmittingQuiz: boolean; // Track quiz submission API call
-  // Updated Learning Stages
-  learningStage: 'lesson' | 'practice' | 'quiz' | 'results' | 'complete';
-  // Removed section/item indices, navigation is between stages now
-  currentQuizQuestionIndex: number;
-  currentResultItemIndex: number; // For paginating results feedback
-  totalQuizQuestions: number;
+  userQuizAnswers: { [key: number]: number };
   loadingState: LoadingState;
   loadingMessage: string;
   error: string | null;
+  sessionAnalysis: SessionAnalysis | null;
+  isSubmittingQuiz: boolean;
+
+  // Learning steps state
+  learningSteps: LearningStep[];
+  currentStepIndex: number;
 
   // Actions
   setSessionId: (sessionId: string) => void;
   setVectorStoreId: (vectorStoreId: string | null) => void;
-  setUploadedFiles: (files: File[]) => void;
-  setLessonPlan: (plan: LessonPlan | null) => void;
   setLessonContent: (content: LessonContent | null) => void;
-  // setMiniQuizzes: (quizzes: MiniQuizInfo[] | null) => void; // Setters for new state
-  // setUserSummaries: (summaries: UserSummaryPromptInfo[] | null) => void;
   setQuiz: (quiz: Quiz | null) => void;
   setQuizFeedback: (feedback: QuizFeedback | null) => void;
   setUserQuizAnswer: (questionIndex: number, answerIndex: number) => void;
-  setSessionAnalysis: (analysis: SessionAnalysis | null) => void;
   setLoading: (state: LoadingState, message?: string) => void;
   setError: (error: string | null) => void;
-  setLearningStage: (stage: SessionState['learningStage']) => void;
-  initializeStepIndices: (lessonContent: LessonContent | null, quiz: Quiz | null) => void;
+  setSessionAnalysis: (analysis: SessionAnalysis | null) => void;
+  setIsSubmittingQuiz: (isSubmitting: boolean) => void;
+
+  // Learning steps actions
+  initializeLearningSteps: (lessonContent: LessonContent | null, quiz: Quiz | null, quizFeedback: QuizFeedback | null) => void;
   goToNextStep: () => void;
   goToPreviousStep: () => void;
   resetSession: () => void;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   // Initial State
   sessionId: null,
   vectorStoreId: null,
-  uploadedFiles: [],
-  lessonPlan: null,
   lessonContent: null,
-  miniQuizzes: null,
-  userSummaries: null,
-  userQuizAnswers: {},
-  isSubmittingQuiz: false,
-  learningStage: 'lesson',
-  currentQuizQuestionIndex: 0,
-  currentResultItemIndex: 0,
-  totalQuizQuestions: 0,
   quiz: null,
   quizFeedback: null,
-  sessionAnalysis: null,
+  userQuizAnswers: {},
+  isSubmittingQuiz: false,
   loadingState: 'idle',
   loadingMessage: '',
   error: null,
+  sessionAnalysis: null,
+
+  // Learning steps state
+  learningSteps: [],
+  currentStepIndex: 0,
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
-  setUploadedFiles: (files) => set({ uploadedFiles: files }),
-  setLessonPlan: (plan) => set({ lessonPlan: plan }),
-  setLessonContent: (content) => set((state) => {
-    const miniQuizzes = content?.mini_quizzes ?? null;
-    const userSummaries = content?.user_summary_prompts ?? null;
-    return { lessonContent: content, miniQuizzes, userSummaries };
-  }),
-  // setMiniQuizzes: (quizzes) => set({ miniQuizzes: quizzes }), // Direct setters if needed elsewhere
-  // setUserSummaries: (summaries) => set({ userSummaries: summaries }),
-  setQuiz: (quiz) => set({ quiz: quiz }),
-  setQuizFeedback: (feedback) => set({ quizFeedback: feedback }),
+  setLessonContent: (content) => set((state) => ({
+      lessonContent: content,
+      // Automatically rebuild steps when content changes
+      learningSteps: buildLearningSteps(content, state.quiz, state.quizFeedback),
+      currentStepIndex: 0, // Reset index when content changes
+  })),
+  setQuiz: (quiz) => set((state) => ({
+      quiz: quiz,
+      // Automatically rebuild steps when quiz changes
+      learningSteps: buildLearningSteps(state.lessonContent, quiz, state.quizFeedback),
+      // Don't reset index if only quiz is added/changed, unless current step is beyond lesson
+      currentStepIndex: state.currentStepIndex,
+  })),
+  setQuizFeedback: (feedback) => set((state) => ({
+      quizFeedback: feedback,
+      // Automatically rebuild steps when feedback changes
+      learningSteps: buildLearningSteps(state.lessonContent, state.quiz, feedback),
+      // Jump to the results summary step when feedback arrives
+      currentStepIndex: state.learningSteps.findIndex(step => step.type === 'resultsSummary'),
+  })),
   setUserQuizAnswer: (questionIndex, answerIndex) => set((state) => ({
       userQuizAnswers: {
           ...state.userQuizAnswers,
@@ -130,117 +160,44 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
-  setLearningStage: (stage) => set({ learningStage: stage }),
-  
-  initializeStepIndices: (lessonContent, quiz) => set((state) => {
-      const numLessonItems = countLessonItems(lessonContent);
-      const numQuizQuestions = quiz?.questions?.length ?? 0;
-      return {
-        learningStage: 'lesson',
-        currentQuizQuestionIndex: 0,
-        currentResultItemIndex: 0,
-        totalQuizQuestions: numQuizQuestions,
-      };
-  }),
-  
-  // --- Navigation Logic (Refined for Phase 4) ---
-  goToNextStep: () => set((state) => {
-      const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, totalQuizQuestions, quizFeedback, quiz, miniQuizzes, userSummaries } = state;
-      const hasPracticeItems = (miniQuizzes && miniQuizzes.length > 0) || (userSummaries && userSummaries.length > 0);
+  setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
 
-      if (learningStage === 'lesson') {
-          // Move from lesson to practice (if items exist) or quiz
-          if (hasPracticeItems) {
-              return { learningStage: 'practice' };
-          } else if (quiz && totalQuizQuestions > 0) {
-             return { learningStage: 'quiz', currentQuizQuestionIndex: 0 };
-          } else {
-             return { learningStage: 'complete' };
-          }
+  initializeLearningSteps: (lessonContent, quiz, quizFeedback) => set({
+      learningSteps: buildLearningSteps(lessonContent, quiz, quizFeedback),
+      currentStepIndex: 0,
+  }),
+
+  goToNextStep: () => set((state) => {
+      const nextIndex = state.currentStepIndex + 1;
+      if (nextIndex < state.learningSteps.length) {
+          return { currentStepIndex: nextIndex };
       }
-      else if (learningStage === 'practice') {
-          // Move from practice to quiz
-          if (quiz && totalQuizQuestions > 0) {
-             return { learningStage: 'quiz', currentQuizQuestionIndex: 0 };
-          } else {
-             return { learningStage: 'complete' };
-          }
-      }
-      else if (learningStage === 'quiz') {
-         // Logic for quiz submission is handled in the component
-         if (currentQuizQuestionIndex < totalQuizQuestions - 1) {
-             return { currentQuizQuestionIndex: currentQuizQuestionIndex + 1 };
-         } else {
-             // On last question, component triggers submission. State change handled by submission success.
-             console.log("On last quiz question, submission should be triggered by component.");
-             return {};
-         }
-      } else if (learningStage === 'results') {
-         // Navigate through result items
-         const totalResultItems = (quizFeedback?.feedback_items?.length ?? 0) + 1; // +1 for summary
-         if (currentResultItemIndex < totalResultItems - 1) {
-            return { currentResultItemIndex: currentResultItemIndex + 1 };
-         } else {
-            console.log("End of results reached.");
-            return { learningStage: 'complete' };
-         }
-      }
-      return {}; // Default no change
+      // Reached the end - potentially mark as complete or do nothing
+      console.log("Reached end of learning steps.");
+      return {}; // No change if already at the end
   }),
 
   goToPreviousStep: () => set((state) => {
-        const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, quiz, miniQuizzes, userSummaries } = state;
-        const hasPracticeItems = (miniQuizzes && miniQuizzes.length > 0) || (userSummaries && userSummaries.length > 0);
-
-       if (learningStage === 'practice') {
-            // Go back from practice to lesson
-           return { learningStage: 'lesson' };
-        } else if (learningStage === 'quiz') {
-            if (currentQuizQuestionIndex > 0) {
-                // Go back to previous question
-                return { currentQuizQuestionIndex: currentQuizQuestionIndex - 1 };
-            } else {
-                // Go back from first quiz question to practice (if exists) or lesson
-                if (hasPracticeItems) {
-                    return { learningStage: 'practice' };
-                } else {
-                    return { learningStage: 'lesson' };
-                }
-            }
-        } else if (learningStage === 'results') {
-            if (currentResultItemIndex > 0) {
-                // Go back through result items
-                return { currentResultItemIndex: currentResultItemIndex - 1 };
-            } else {
-                // Go back from results summary to last quiz question
-                if (quiz && state.totalQuizQuestions > 0) {
-                   return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions - 1 };
-                } else if (hasPracticeItems) { // Fallback to practice if no quiz
-                   return { learningStage: 'practice' };
-                } else { // Fallback to lesson if no quiz/practice
-                   return { learningStage: 'lesson' };
-                }
-            }
-        }
-        // Cannot go back from 'lesson' or 'complete'
-        return {};
-    }),
+      const prevIndex = state.currentStepIndex - 1;
+      if (prevIndex >= 0) {
+          return { currentStepIndex: prevIndex };
+      }
+      // At the beginning - do nothing
+      console.log("Already at the first learning step.");
+      return {}; // No change if already at the start
+  }),
 
   resetSession: () => set({
     sessionId: null,
     vectorStoreId: null,
-    uploadedFiles: [],
-    lessonPlan: null,
     lessonContent: null,
     quiz: null,
     quizFeedback: null,
     sessionAnalysis: null,
     userQuizAnswers: {},
     isSubmittingQuiz: false,
-    learningStage: 'lesson',
-    currentQuizQuestionIndex: 0,
-    currentResultItemIndex: 0,
-    totalQuizQuestions: 0,
+    learningSteps: [],
+    currentStepIndex: 0,
     loadingState: 'idle',
     loadingMessage: '',
     error: null,
