@@ -3,11 +3,11 @@ import {
   StartSessionResponse,
   UploadDocumentsResponse,
   LessonPlan,
-  LessonContent,
-  Quiz,
   QuizUserAnswers,
   QuizFeedback,
   SessionAnalysis,
+  InteractionRequestData,
+  InteractionResponseData,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'; // Use environment variable
@@ -65,10 +65,11 @@ export const uploadDocuments = async (sessionId: string, files: File[]): Promise
 // Note: The frontend reqs imply these might be fire-and-forget,
 // or you might need status endpoints depending on backend design.
 
+// Keep /plan for initial setup, remove /content trigger
+/*
 export const triggerPlanGeneration = async (sessionId: string): Promise<{ message: string }> => {
   try {
     console.log(`Triggering lesson plan generation for session ${sessionId}...`);
-    // Assuming POST triggers generation, response confirms triggering
     const response = await apiClient.post<{ message: string }>(`/sessions/${sessionId}/plan`);
     console.log('Plan generation triggered:', response.data);
     return response.data;
@@ -77,7 +78,9 @@ export const triggerPlanGeneration = async (sessionId: string): Promise<{ messag
     throw error;
   }
 };
+*/
 
+/* Removed - Orchestrator handles content flow
 export const triggerContentGeneration = async (sessionId: string): Promise<{ message: string }> => {
   try {
     console.log(`Triggering lesson content generation for session ${sessionId}...`);
@@ -89,9 +92,11 @@ export const triggerContentGeneration = async (sessionId: string): Promise<{ mes
     throw error;
   }
 };
+*/
 
 // --- Data Fetching ---
 
+// Keep getLessonPlan if needed for initial display or context, but less critical now
 export const getLessonPlan = async (sessionId: string): Promise<LessonPlan> => {
   try {
     console.log(`Fetching lesson plan for session ${sessionId}...`);
@@ -104,6 +109,8 @@ export const getLessonPlan = async (sessionId: string): Promise<LessonPlan> => {
   }
 };
 
+// Remove getLessonContent - content comes via /interact
+/*
 export const getLessonContent = async (sessionId: string): Promise<LessonContent> => {
   try {
     console.log(`Fetching lesson content for session ${sessionId}...`);
@@ -115,7 +122,10 @@ export const getLessonContent = async (sessionId: string): Promise<LessonContent
     throw error;
   }
 };
+*/
 
+// Remove getQuiz - quiz questions come via /interact
+/*
 export const getQuiz = async (sessionId: string): Promise<Quiz> => {
   try {
     console.log(`Fetching quiz for session ${sessionId}...`);
@@ -127,9 +137,11 @@ export const getQuiz = async (sessionId: string): Promise<Quiz> => {
     throw error;
   }
 };
+*/
 
 // --- Quiz Submission & Feedback ---
-
+// Remove submitQuiz - answers are sent via /interact
+/*
 export const submitQuiz = async (sessionId: string, answers: QuizUserAnswers): Promise<QuizFeedback> => {
   try {
     console.log(`Submitting quiz answers for session ${sessionId}...`);
@@ -140,6 +152,23 @@ export const submitQuiz = async (sessionId: string, answers: QuizUserAnswers): P
     console.error('Error submitting quiz:', error);
     throw error;
   }
+};
+*/
+
+// +++ NEW Interaction Endpoint +++
+export const interactWithTutor = async (sessionId: string, interactionData: InteractionRequestData): Promise<InteractionResponseData> => {
+    try {
+        console.log(`Sending interaction to session ${sessionId}:`, interactionData);
+        const response = await apiClient.post<InteractionResponseData>(
+            `/sessions/${sessionId}/interact`,
+            interactionData
+        );
+        console.log('Interaction response received:', response.data);
+        return response.data;
+    } catch (error) {
+        console.error('Error interacting with tutor:', error);
+        throw error;
+    }
 };
 
 // --- Session Analysis (Optional) ---

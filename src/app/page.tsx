@@ -2,7 +2,8 @@
 
 import React, { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSessionStore } from '@/store/sessionStore';
+import { SessionState, useSessionStore } from '@/store/sessionStore';
+import { shallow } from 'zustand/shallow';
 import * as api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +16,17 @@ export default function UploadPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const { sessionId, loadingState, loadingMessage, setLoading, setSessionId, setVectorStoreId, setError, resetSession } = useSessionStore();
+  
+  const sessionId = useSessionStore((state) => state.sessionId);
+  const loadingState = useSessionStore((state) => state.loadingState);
+  const loadingMessage = useSessionStore((state) => state.loadingMessage);
+  const error = useSessionStore((state) => state.error);
+  const setLoading = useSessionStore((state) => state.setLoading);
+  const setSessionId = useSessionStore((state) => state.setSessionId);
+  const setVectorStoreId = useSessionStore((state) => state.setVectorStoreId);
+  const setError = useSessionStore((state) => state.setError);
+  const resetSession = useSessionStore((state) => state.resetSession);
+  const setLoadingMessage = useSessionStore((state) => state.setLoadingMessage);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -29,34 +40,41 @@ export default function UploadPage() {
       return;
     }
 
-    setLoading('loading', 'Starting session...');
-    setError(null); // Clear previous errors
+    setLoading('loading');
+    setLoadingMessage('Starting session...');
+    setError(null);
 
     try {
-      // 1. Start a new session
       const sessionResponse = await api.startSession();
       setSessionId(sessionResponse.session_id);
-      const currentSessionId = sessionResponse.session_id; // Use current ID for subsequent calls
+      const currentSessionId = sessionResponse.session_id;
 
-      // 2. Upload documents
-      setLoading('loading', `Uploading ${selectedFiles.length} document(s)...`);
+      setLoading('loading');
+      setLoadingMessage(`Uploading ${selectedFiles.length} document(s)...`);
       const uploadResponse = await api.uploadDocuments(currentSessionId, selectedFiles);
-      setVectorStoreId(uploadResponse.vector_store_id); // Assuming API returns this
+      
+      console.log('Upload response:', uploadResponse);
+      
+      if (!uploadResponse) {
+        throw new Error('No response received from server');
+      }
+      
+      if (!uploadResponse.vector_store_id) {
+        console.error('Invalid upload response:', uploadResponse);
+        throw new Error('Server response missing vector_store_id');
+      }
+      
+      setVectorStoreId(uploadResponse.vector_store_id);
 
-      toast({ title: "Upload Successful", description: `${uploadResponse.files_received.length} file(s) processed.` });
+      const filesProcessed = uploadResponse.files_received?.length || 0;
+      toast({ title: "Upload Successful", description: `${filesProcessed} file(s) processed.` });
 
-      // 3. Trigger generation steps (could be combined with upload on backend)
-      setLoading('loading', 'Analyzing documents and preparing lesson...');
-      // Depending on backend design, you might trigger plan and content separately
-      // or just navigate and let the next page poll/wait.
-      // Example: Triggering plan generation, content might be triggered automatically or on next step page.
-      await api.triggerPlanGeneration(currentSessionId);
-      // Optionally trigger content immediately, or handle on next page
-      // await api.triggerContentGeneration(currentSessionId);
+      setLoading('loading');
+      setLoadingMessage('Analyzing documents and preparing lesson...');
 
-      setLoading('success', 'Preparation complete!');
+      setLoading('success');
+      setLoadingMessage('Preparation complete!');
 
-      // 4. Navigate to the learn page
       router.push(`/session/${currentSessionId}/learn`);
 
     } catch (error: any) {
@@ -64,20 +82,18 @@ export default function UploadPage() {
       const errorMessage = error.response?.data?.detail || error.message || 'An unknown error occurred during upload.';
       setError(`Upload failed: ${errorMessage}`);
       setLoading('error');
+      setLoadingMessage('An error occurred.');
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
-      // Optionally reset session ID if creation failed partially
-      // resetSession();
     }
-  }, [selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setError, toast, resetSession]);
+  }, [selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setError, toast, setLoadingMessage]);
 
-  // Reset session if navigating back to upload page
   React.useEffect(() => {
     if (sessionId) {
         // Optional: Decide if you want to reset automatically when visiting '/'
         // resetSession();
         // console.log("Session reset on visiting upload page.");
     }
-  }, [sessionId, resetSession]);
+  }, [sessionId]);
 
   return (
     <div className="flex justify-center items-center min-h-screen">
@@ -87,7 +103,7 @@ export default function UploadPage() {
           <CardDescription>Upload your documents to start learning.</CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingState === 'loading' ? (
+          {!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error') ? (
             <LoadingSpinner message={loadingMessage} />
           ) : (
             <div className="grid w-full items-center gap-4">
@@ -98,7 +114,7 @@ export default function UploadPage() {
                   type="file"
                   multiple
                   onChange={handleFileChange}
-                  disabled={loadingState === 'loading'}
+                  disabled={!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
                 />
               </div>
               {selectedFiles.length > 0 && (
@@ -111,8 +127,8 @@ export default function UploadPage() {
                   </ul>
                 </div>
               )}
-               {useSessionStore.getState().error && (
-                 <p className="text-sm text-red-600">{useSessionStore.getState().error}</p>
+               {error && (
+                 <p className="text-sm text-red-600">{error}</p>
                )}
             </div>
           )}
@@ -120,10 +136,10 @@ export default function UploadPage() {
         <CardFooter>
           <Button
             onClick={handleUpload}
-            disabled={selectedFiles.length === 0 || loadingState === 'loading'}
+            disabled={selectedFiles.length === 0 || !(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
             className="w-full"
           >
-            {loadingState === 'loading' ? 'Processing...' : 'Start Learning'}
+            {!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error') ? 'Processing...' : 'Start Learning'}
           </Button>
         </CardFooter>
       </Card>

@@ -6,30 +6,27 @@ import { useParams, useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
-import { useSessionStore } from '@/store/sessionStore';
+import { SessionState, useSessionStore } from '@/store/sessionStore';
 import { shallow } from 'zustand/shallow';
-import * as api from '@/lib/api';
-import type {
-    LessonContent,
-    Quiz,
+import {
     QuizQuestion as QuizQuestionType,
-    QuizFeedback,
     QuizFeedbackItem,
-    QuizUserAnswer,
-    QuizUserAnswers,
-    LoadingState
+    LoadingState,
+    InteractionContentType,
+    UserModelState,
+    // LessonContent type might not be needed if DisplayTextContent handles 'any'
 } from '@/lib/types';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
+// Progress component removed as it's no longer used
 
-// --- Keep QuizQuestion, DisplayResultsSummary, DisplayResultFeedbackItem, DisplayError ---
+// --- QuizQuestion Component --- 
 interface QuizQuestionProps {
     question: QuizQuestionType;
+    // Index is still needed for mapping options and creating unique IDs
     index: number;
-    total: number;
     onAnswerChange: (value: string) => void;
     selectedValue: string | undefined;
 }
@@ -37,13 +34,12 @@ interface QuizQuestionProps {
 const QuizQuestion = ({
     question,
     index,
-    total,
     onAnswerChange,
     selectedValue
 }: QuizQuestionProps) => (
     <Card className="h-full flex flex-col">
         <CardHeader>
-            <CardDescription>Question {index + 1} of {total} ({question.difficulty})</CardDescription>
+            <CardDescription>Question ({question.difficulty})</CardDescription>
             <CardTitle>{question.question}</CardTitle>
         </CardHeader>
         <CardContent className="flex-grow overflow-y-auto">
@@ -54,6 +50,7 @@ const QuizQuestion = ({
             >
                 {question.options.map((option, optionIndex) => (
                     <div key={optionIndex} className="flex items-center space-x-2 my-2 p-2 border rounded hover:bg-accent">
+                        {/* Using question.index might be wrong if it doesn't exist, stick to optionIndex or a unique question ID if available */}
                         <RadioGroupItem value={optionIndex.toString()} id={`q${index}-opt${optionIndex}`} />
                         <Label htmlFor={`q${index}-opt${optionIndex}`} className="cursor-pointer flex-1">{option}</Label>
                     </div>
@@ -63,34 +60,11 @@ const QuizQuestion = ({
     </Card>
 );
 
-const DisplayResultsSummary = ({ feedback }: { feedback: QuizFeedback }) => {
-    const scoreColor = feedback.passed ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
-    return (
-        <Card className="h-full flex flex-col">
-            <CardHeader>
-                <CardTitle>Quiz Results: {feedback.quiz_title}</CardTitle>
-                <CardDescription>Overall Performance</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 flex-grow overflow-y-auto">
-                <div className="flex justify-between items-baseline">
-                    <span className="text-muted-foreground">Score:</span>
-                    <span className={`text-2xl font-bold ${scoreColor}`}>
-                        {feedback.correct_answers} / {feedback.total_questions} ({feedback.score_percentage.toFixed(1)}%)
-                    </span>
-                </div>
-                <div>
-                    <h4 className="font-semibold mb-1 text-sm">Overall Feedback:</h4>
-                    <p className="text-sm text-muted-foreground">{feedback.overall_feedback}</p>
-                </div>
-            </CardContent>
-        </Card>
-    );
-};
-
-const DisplayResultFeedbackItem = ({ item, index, total }: { item: QuizFeedbackItem, index: number, total: number }) => (
+// --- DisplayResultFeedbackItem --- 
+const DisplayResultFeedbackItem = ({ item }: { item: QuizFeedbackItem }) => (
     <Card className="h-full flex flex-col">
         <CardHeader>
-            <CardDescription>Detailed Feedback for Question {item.question_index + 1} of {total}</CardDescription>
+            <CardDescription>Detailed Feedback for Question {item.question_index + 1}</CardDescription>
             <CardTitle className="text-base">{item.question_text}</CardTitle>
         </CardHeader>
         <CardContent className="text-sm space-y-1 flex-grow overflow-y-auto">
@@ -104,6 +78,7 @@ const DisplayResultFeedbackItem = ({ item, index, total }: { item: QuizFeedbackI
     </Card>
 );
 
+// --- DisplayError Component --- 
 const DisplayError = ({ message }: { message: string }) => (
     <Card className="h-full flex flex-col border-destructive">
         <CardHeader>
@@ -115,327 +90,299 @@ const DisplayError = ({ message }: { message: string }) => (
     </Card>
 );
 
-// --- NEW Simplified Lesson Display Component ---
-const DisplaySimpleLesson = ({ lessonContent }: { lessonContent: LessonContent | null }) => {
-    if (!lessonContent) return null;
+// --- DisplayTextContent Component --- 
+const DisplayTextContent = ({ content }: { content: any }) => {
+    let title: string | undefined = undefined;
+    let text: string = "";
+
+    if (typeof content === 'string') {
+        text = content;
+    } else if (content && typeof content === 'object') {
+        // Check for common text properties, adapt if backend uses different keys
+        if (typeof content.text === 'string') text = content.text;
+        else if (typeof content.explanation === 'string') text = content.explanation; // Example fallback
+        else if (typeof content.message === 'string') text = content.message; // Another fallback
+        
+        if (typeof content.title === 'string') title = content.title;
+
+        // If no text found after checks
+        if (!text && Object.keys(content).length > 0) {
+             console.warn("DisplayTextContent received object without known text field:", content);
+             // Attempt to render a string representation if no text found
+             try { 
+                text = JSON.stringify(content, null, 2);
+                title = title || "Raw Content"; // Provide a title if none existed
+             } catch (e) { 
+                console.error("Failed to stringify content:", e);
+                text = "[Unrenderable Object]";
+                title = title || "Error";
+             }
+        }
+    } 
+    
+    // If content is completely empty or unrenderable
+    if (!text && (!content || (typeof content === 'object' && Object.keys(content).length === 0))) {
+        console.warn("Unexpected empty/invalid content for DisplayTextContent:", content);
+        return <DisplayError message="Received empty or invalid content."/>;
+    }
 
     return (
         <Card className="h-full flex flex-col">
-            <CardHeader>
-                <CardTitle>{lessonContent.title}</CardTitle>
-            </CardHeader>
-            {/* Make CardContent scrollable */}
+            {title && (
+                 <CardHeader>
+                    <CardTitle>{title}</CardTitle>
+                </CardHeader>
+            )}
             <CardContent className="prose dark:prose-invert max-w-none flex-grow overflow-y-auto">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{lessonContent.text}</ReactMarkdown>
+                {/* Use pre-wrap for JSON string representation */}
+                {title === "Raw Content" ? <pre className="whitespace-pre-wrap break-words">{text}</pre> : <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>}
             </CardContent>
         </Card>
     );
 };
 
-type CurrentViewData =
-    | { type: 'loading'; message: string }
-    | { type: 'error'; data: string }
-    | { type: 'lesson'; data: LessonContent }
-    | { type: 'quizQuestion'; data: QuizQuestionType; index: number; total: number }
-    | { type: 'resultsSummary'; data: QuizFeedback }
-    | { type: 'resultItem'; data: QuizFeedbackItem; index: number; total: number }
-    | { type: 'complete' };
-
 export default function LearnPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
-    const sessionId = params.sessionId as string;
+    const sessionId = params.sessionId as string | null;
 
-    // Use shallow comparison for objects from the store
-    const lessonContent = useSessionStore(state => state.lessonContent, shallow);
-    const quiz = useSessionStore(state => state.quiz, shallow);
-    const quizFeedback = useSessionStore(state => state.quizFeedback, shallow);
-    const userQuizAnswers = useSessionStore(state => state.userQuizAnswers, shallow);
+    // --- Updated state access using single selector + shallow ---
+    const { 
+        currentInteractionContent,
+        currentContentType,
+        userModelState,
+        currentQuizQuestion,
+        isLessonComplete,
+        loadingState,
+        error,
+        loadingMessage,
+        sendInteraction,
+        setError,
+     } = useSessionStore(
+        (state: SessionState) => ({
+            currentInteractionContent: state.currentInteractionContent,
+            currentContentType: state.currentContentType,
+            userModelState: state.userModelState,
+            currentQuizQuestion: state.currentQuizQuestion,
+            isLessonComplete: state.isLessonComplete,
+            loadingState: state.loadingState,
+            error: state.error,
+            loadingMessage: state.loadingMessage,
+            sendInteraction: state.sendInteraction,
+            setError: state.setError
+        }),
+        shallow 
+    );
 
-    // --- SIMPLIFIED State & Actions ---
-    const learningStage = useSessionStore(state => state.learningStage); // Now: 'lesson', 'quiz', 'results', 'complete'
-    const currentQuizQuestionIndex = useSessionStore(state => state.currentQuizQuestionIndex);
-    const currentResultItemIndex = useSessionStore(state => state.currentResultItemIndex);
-    const totalQuizQuestions = useSessionStore(state => state.totalQuizQuestions);
-    const loadingState = useSessionStore(state => state.loadingState);
-    const error = useSessionStore(state => state.error);
-    const loadingMessage = useSessionStore(state => state.loadingMessage);
-    const isSubmittingQuiz = useSessionStore(state => state.isSubmittingQuiz);
-
-    const setLoading = useSessionStore(state => state.setLoading);
-    const setError = useSessionStore(state => state.setError);
-    const setLessonContent = useSessionStore(state => state.setLessonContent);
-    const setQuiz = useSessionStore(state => state.setQuiz);
-    const setQuizFeedback = useSessionStore(state => state.setQuizFeedback);
-    const setUserQuizAnswer = useSessionStore(state => state.setUserQuizAnswer);
-    const setIsSubmittingQuiz = useSessionStore(state => state.setIsSubmittingQuiz);
-    const goToNextStep = useSessionStore(state => state.goToNextStep);
-    const goToPreviousStep = useSessionStore(state => state.goToPreviousStep);
-
+    const [selectedQuizAnswerIndex, setSelectedQuizAnswerIndex] = useState<number | undefined>(undefined);
     const [localLoading, setLocalLoading] = useState(true);
     const [hasInitialized, setHasInitialized] = useState(false);
-    const [currentQuizAnswer, setCurrentQuizAnswer] = useState<string | undefined>(undefined);
     const isFetchingRef = useRef(false);
 
-    // --- Data Fetching Effect ---
+    // --- Initial Interaction Effect ---
     useEffect(() => {
         if (!sessionId) {
-            setError('No session ID provided');
-            return;
-        }
-        if (hasInitialized) return;
-        if (isFetchingRef.current) return;
-
-        const storeState = useSessionStore.getState();
-        if (storeState.lessonContent) {
-            console.log("LearnPage: Data found in store, initializing.");
-            setHasInitialized(true);
+            setError('Session ID missing. Please start again.');
             setLocalLoading(false);
-            if (storeState.quiz && storeState.totalQuizQuestions === 0) {
-                useSessionStore.setState({ totalQuizQuestions: storeState.quiz.questions.length });
-            }
             return;
         }
-
-        const fetchLearnData = async () => {
+        if (!hasInitialized && !isFetchingRef.current) {
             isFetchingRef.current = true;
             setLocalLoading(true);
-            setLoading('loading');
-            setError(null);
-            try {
-                const [lessonData, quizData] = await Promise.all([
-                    api.getLessonContent(sessionId),
-                    api.getQuiz(sessionId)
-                ]);
-
-                if (!lessonData) {
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    const retryLessonData = await api.getLessonContent(sessionId);
-                    if (!retryLessonData) {
-                        throw new Error(`Failed to fetch lesson content after retry.`);
-                    }
-                    setLessonContent(retryLessonData);
-                } else {
-                    setLessonContent(lessonData);
-                }
-
-                setQuiz(quizData);
-                setLoading('success');
-                setHasInitialized(true);
-            } catch (err: any) {
-                const errorMessage = err.response?.data?.detail || err.message || 'Failed to load learning materials.';
-                setError(errorMessage);
-                setLoading('error');
-                setHasInitialized(false);
-            } finally {
-                setLocalLoading(false);
-                isFetchingRef.current = false;
-            }
-        };
-        fetchLearnData();
-    }, [sessionId, hasInitialized, setLessonContent, setQuiz, setLoading, setError]);
-
-    // --- Effect to load stored answer ---
-    useEffect(() => {
-        if (learningStage === 'quiz' && userQuizAnswers && typeof currentQuizQuestionIndex === 'number') {
-            const answer = userQuizAnswers[currentQuizQuestionIndex];
-            if (answer) {
-                setCurrentQuizAnswer(answer.selected_option_index.toString());
-            }
+            console.log("LearnPage: Sending initial 'start' interaction...");
+            sendInteraction('start')
+                .then(() => {
+                    setHasInitialized(true);
+                    console.log("LearnPage: Initial interaction successful.");
+                })
+                .catch((err: any) => {
+                    console.error("LearnPage: Initial interaction failed.", err);
+                })
+                .finally(() => {
+                    setLocalLoading(false);
+                    isFetchingRef.current = false;
+                });
+        } else {
+            setLocalLoading(false);
         }
-    }, [currentQuizQuestionIndex, learningStage, userQuizAnswers]);
+    // Dependencies: only trigger when sessionId changes or initialization needed.
+    // Store actions (sendInteraction, setError) are stable refs and not needed here.
+    }, [sessionId, hasInitialized]);
+
+    // --- Effect to reset local answer state when content type changes ---
+    useEffect(() => {
+        if (currentContentType !== 'quiz_question') {
+            setSelectedQuizAnswerIndex(undefined);
+        }
+    // Dependency: only trigger when the content type changes
+    }, [currentContentType]);
+
 
     // --- Interaction Handlers ---
-    const handleNextClick = async () => {
-        if (isSubmittingQuiz || loadingState === 'loading') return;
+    const handleNext = () => {
+        // Use the action reference directly from the store hook
+        if (loadingState === 'interacting' || isLessonComplete) return;
 
-        if (learningStage === 'quiz') {
-            if (currentQuizAnswer === undefined) {
+        if (currentContentType === 'quiz_question') {
+            if (selectedQuizAnswerIndex === undefined) {
                 toast({
                     title: "Please select an answer",
-                    description: "You must select an answer before proceeding.",
                     variant: "destructive",
                 });
                 return;
             }
-
-            if (currentQuizQuestionIndex === totalQuizQuestions - 1) {
-                setIsSubmittingQuiz(true);
-                try {
-                    const answers: QuizUserAnswer[] = Object.entries(userQuizAnswers || {}).map(([index, answer]) => ({
-                        question_index: parseInt(index),
-                        selected_option_index: answer.selected_option_index,
-                    }));
-
-                    const quizSubmission: QuizUserAnswers = {
-                        quiz_title: quiz?.title || '',
-                        user_answers: answers,
-                    };
-
-                    const feedback = await api.submitQuiz(sessionId, quizSubmission);
-                    setQuizFeedback(feedback);
-                    goToNextStep();
-                } catch (err: any) {
-                    const errorMessage = err.response?.data?.detail || err.message || 'Failed to submit quiz.';
-                    setError(errorMessage);
-                    toast({
-                        title: "Error",
-                        description: errorMessage,
-                        variant: "destructive",
-                    });
-                } finally {
-                    setIsSubmittingQuiz(false);
-                }
-                return;
-            }
+            sendInteraction('answer', { answer_index: selectedQuizAnswerIndex });
+        } else {
+            sendInteraction('next');
         }
-
-        goToNextStep();
-    };
-
-    const handlePreviousClick = () => {
-        if (isSubmittingQuiz || loadingState === 'loading') return;
-        goToPreviousStep();
     };
 
     // --- Button States ---
-    const isFirstRenderedStep = learningStage === 'lesson';
-    const isLastRenderedStep = learningStage === 'complete';
-
-    const isNextDisabled = isSubmittingQuiz || loadingState === 'loading' || learningStage === 'complete' ||
-        (learningStage === 'quiz' && currentQuizAnswer === undefined);
-
-    const isPrevDisabled = isSubmittingQuiz || loadingState === 'loading' || isFirstRenderedStep;
+    const isPrevDisabled = true; // Previous interaction not implemented
+    const isNextDisabled = loadingState === 'interacting' || isLessonComplete ||
+        (currentContentType === 'quiz_question' && selectedQuizAnswerIndex === undefined);
 
     // --- Loading and Error States ---
-    if (loadingState === 'loading' && !hasInitialized) {
+    if (localLoading || (loadingState === 'loading' && !hasInitialized)) {
         return (
             <div className="flex h-screen items-center justify-center">
-                <LoadingSpinner message={loadingMessage || 'Loading...'} />
+                <LoadingSpinner message={loadingMessage || 'Initiating lesson...'} />
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="flex h-screen items-center justify-center">
+            <div className="flex h-screen items-center justify-center p-6">
                 <DisplayError message={error} />
             </div>
         );
     }
 
-    if (!lessonContent && !localLoading && !error) {
+    // Show error if initialized but no content and not loading/interacting
+    if (hasInitialized && !currentInteractionContent && loadingState !== 'loading' && loadingState !== 'interacting' && !error) {
         return (
             <div className="flex h-screen items-center justify-center">
-                <DisplayError message="Lesson content not available." />
+                <DisplayError message="No content received from the tutor." />
             </div>
         );
+    }
+
+    // Helper to check if content is a valid QuizFeedbackItem
+    const isQuizFeedbackItem = (content: any): content is QuizFeedbackItem => {
+        return !!content && typeof content === 'object' && typeof content.question_index === 'number' && typeof content.is_correct === 'boolean';
     }
 
     // --- Main Layout ---
     return (
         <div className="flex h-screen bg-muted/40">
-            {/* Left Column (Stage Display) */}
+            {/* Left Column (Stage Display & User Model - Simplified) */}
             <div className="w-1/6 lg:w-1/5 flex-shrink-0 bg-gray-100 dark:bg-gray-900/50 border-r border-border/50 hidden md:block">
-                <div className="p-4 h-full">
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Stage</p>
-                    <div className="space-y-1 text-sm">
-                        <p className={learningStage === 'lesson' ? 'font-semibold text-primary' : 'text-muted-foreground'}>1. Lesson</p>
-                        {quiz && quiz.questions.length > 0 && <p className={learningStage === 'quiz' ? 'font-semibold text-primary' : 'text-muted-foreground'}>2. Quiz</p>}
-                        {quizFeedback && <p className={learningStage === 'results' ? 'font-semibold text-primary' : 'text-muted-foreground'}>{quiz ? '3.' : '2.'} Results</p>}
-                        <p className={learningStage === 'complete' ? 'font-semibold text-primary' : 'text-muted-foreground'}>{quizFeedback ? (quiz ? '4.' : '3.') : (quiz ? '3.' : '2.')} Complete</p>
-                    </div>
-                    {/* Progress bars */}
-                    {learningStage === 'quiz' && totalQuizQuestions > 0 && (
-                        <div className="mt-4">
-                            <Label className="text-xs text-muted-foreground">Quiz Progress</Label>
-                            <Progress value={((currentQuizQuestionIndex + 1) / totalQuizQuestions) * 100} className="h-2 mt-1" />
+                <div className="p-4 h-full overflow-y-auto">
+                    {/* Current Topic - Added check for userModelState */}
+                    {userModelState?.current_topic && (
+                         <div className="mb-4">
+                            <p className="text-sm font-medium text-muted-foreground mb-1">Current Topic</p>
+                            <p className="text-sm font-semibold text-primary">{userModelState.current_topic}</p>
                         </div>
                     )}
-                    {learningStage === 'results' && quizFeedback && (
-                        <div className="mt-4">
-                            <Label className="text-xs text-muted-foreground">Results Progress</Label>
-                            <Progress value={((currentResultItemIndex + 1) / (quizFeedback.feedback_items.length + 1)) * 100} className="h-2 mt-1" />
+
+                    {/* Simplified Stage Indicator */}
+                    <div className="mb-4">
+                        <p className="text-sm font-medium text-muted-foreground mb-1">Lesson Flow</p>
+                        <div className="space-y-1 text-sm">
+                            {/* Ensure content type comparisons are valid */}
+                            <p className={(currentContentType === 'text') ? 'font-semibold text-primary' : 'text-muted-foreground'}>Explanation</p>
+                            <p className={currentContentType === 'quiz_question' ? 'font-semibold text-primary' : 'text-muted-foreground'}>Quiz Question</p>
+                            <p className={currentContentType === 'quiz_feedback_item' ? 'font-semibold text-primary' : 'text-muted-foreground'}>Feedback</p>
+                            <p className={isLessonComplete ? 'font-semibold text-primary' : 'text-muted-foreground'}>Complete</p>
                         </div>
-                    )}
+                     </div>
+
+                     {/* Progress bars removed */}
+
+                     {/* Session Summary (Optional) - Added check for userModelState */} 
+                     {userModelState?.session_summary && userModelState.session_summary !== "Session initializing." && userModelState.session_summary !== "Session reset." && (
+                        <div className="mt-4 border-t pt-4">
+                            <p className="text-sm font-medium text-muted-foreground mb-1">Session Summary</p>
+                            <p className="text-xs text-muted-foreground">{userModelState.session_summary}</p>
+                        </div>
+                     )}
                 </div>
             </div>
 
-            {/* Right Column ("Whiteboard") */}
-            <div className="flex-grow flex flex-col overflow-hidden">
-                {/* Main Content Area */}
-                <div className="flex-grow p-4 md:p-6 bg-background overflow-hidden relative">
+            {/* Right Column ("Whiteboard") */} 
+            <div className="flex-grow flex flex-col overflow-hidden relative">
+                {/* Main Content Area */} 
+                <div className="flex-grow p-4 md:p-6 bg-background overflow-hidden">
                     <div className="h-full">
-                        {/* --- RENDER SIMPLIFIED LESSON --- */}
-                        {learningStage === 'lesson' && lessonContent && (
-                            <DisplaySimpleLesson lessonContent={lessonContent} />
+                        {/* Render based on currentContentType */} 
+                        {currentContentType === 'text' && currentInteractionContent && (
+                            <DisplayTextContent content={currentInteractionContent} />
                         )}
 
-                        {/* --- Quiz and Results rendering --- */}
-                        {learningStage === 'quiz' && quiz && quiz.questions && quiz.questions[currentQuizQuestionIndex] && (
+                        {currentContentType === 'quiz_question' && currentQuizQuestion && (
                             <QuizQuestion
-                                question={quiz.questions[currentQuizQuestionIndex]}
-                                index={currentQuizQuestionIndex}
-                                total={totalQuizQuestions}
-                                selectedValue={currentQuizAnswer}
-                                onAnswerChange={(value) => setCurrentQuizAnswer(value)}
+                                question={currentQuizQuestion}
+                                index={0} 
+                                selectedValue={selectedQuizAnswerIndex?.toString()}
+                                onAnswerChange={(value) => setSelectedQuizAnswerIndex(parseInt(value))}
                             />
                         )}
-                        {learningStage === 'results' && quizFeedback && (
-                            currentResultItemIndex === 0
-                                ? <DisplayResultsSummary feedback={quizFeedback} />
-                                : <DisplayResultFeedbackItem
-                                    item={quizFeedback.feedback_items[currentResultItemIndex - 1]}
-                                    index={currentResultItemIndex - 1}
-                                    total={quizFeedback.feedback_items.length}
-                                />
+
+                        {currentContentType === 'quiz_feedback_item' && isQuizFeedbackItem(currentInteractionContent) && (
+                           <DisplayResultFeedbackItem item={currentInteractionContent} />
                         )}
-                        {learningStage === 'complete' && (
+
+                        {/* Lesson Complete Message */} 
+                        {isLessonComplete && (
                             <Card className="h-full flex flex-col items-center justify-center">
                                 <CardHeader><CardTitle>Lesson Complete!</CardTitle></CardHeader>
                                 <CardContent className="text-center">
                                     <CardDescription>You have finished this learning session.</CardDescription>
-                                    <Button className="mt-4" onClick={() => router.push(`/session/${sessionId}/analysis`)}>
-                                        View Session Analysis
-                                    </Button>
+                                    {sessionId && (
+                                        <Button className="mt-4" onClick={() => router.push(`/session/${sessionId}/analysis`)}>
+                                            View Session Analysis
+                                        </Button>
+                                    )}
                                 </CardContent>
                             </Card>
                         )}
 
-                        {/* Handle missing data cases */}
-                        {learningStage === 'lesson' && !lessonContent && !localLoading && (
-                            <DisplayError message="Lesson content not available." />
-                        )}
-                        {learningStage === 'quiz' && (!quiz?.questions || !quiz.questions[currentQuizQuestionIndex]) && (
-                            <DisplayError message="Quiz question not available." />
-                        )}
-                        {learningStage === 'results' && !quizFeedback && (
-                            <DisplayError message="Quiz results not available." />
-                        )}
+                         {/* Display loading spinner during interaction */} 
+                         {loadingState === 'interacting' && (
+                            <div className="absolute inset-0 bg-background/70 flex items-center justify-center z-10">
+                                <LoadingSpinner message={loadingMessage || 'Processing...'} />
+                            </div>
+                         )}
 
-                        {/* Loading indicators */}
-                        {localLoading && <LoadingSpinner message={loadingMessage || 'Loading...'}/>}
-                        {isSubmittingQuiz && <LoadingSpinner message="Submitting quiz..." />}
+                         {/* Fallback for unexpected content types */}
+                         {hasInitialized && currentContentType && !['text', 'quiz_question', 'quiz_feedback_item'].includes(currentContentType) && !isLessonComplete && !error && (
+                            <DisplayError message={`Received unexpected or unhandled content type: ${currentContentType}`} />
+                         )}
                     </div>
                 </div>
 
-                {/* Fixed Footer Area */}
+                {/* Fixed Footer Area */} 
                 <div className="p-3 md:p-4 border-t bg-card flex justify-between items-center flex-shrink-0">
-                    <Button variant="outline" onClick={handlePreviousClick} disabled={isPrevDisabled}>
+                     {/* Previous button (disabled) */} 
+                    <Button variant="outline" onClick={() => { /* No action */ }} disabled={isPrevDisabled}>
                         Previous
                     </Button>
-                    {learningStage !== 'complete' && (
-                        <Button onClick={handleNextClick} disabled={isNextDisabled}>
-                            {isSubmittingQuiz
-                                ? 'Submitting...'
-                                : (learningStage === 'quiz' && currentQuizQuestionIndex === totalQuizQuestions - 1)
-                                    ? 'Submit Quiz'
-                                    : 'Next'
+
+                     {/* Next/Submit/Complete button */} 
+                    {!isLessonComplete ? (
+                        <Button onClick={handleNext} disabled={isNextDisabled}>
+                            {loadingState === 'interacting'
+                                ? 'Processing...'
+                                : currentContentType === 'quiz_question'
+                                    ? 'Submit Answer'
+                                    : 'Next' // Default for text, feedback, etc.
                             }
                         </Button>
-                    )}
-                    {learningStage === 'complete' && (
+                    ) : (
+                        // Button to start a new session when complete
                         <Button onClick={() => router.push('/')}>Start New Session</Button>
                     )}
                 </div>

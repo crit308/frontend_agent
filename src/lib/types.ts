@@ -1,4 +1,5 @@
 // Corresponds to ai_tutor/agents/models.py
+import { UserModelState } from "@/store/sessionStore"; // Import UserModelState if defined there or define below
 
 export interface LearningObjective {
   title: string;
@@ -176,4 +177,40 @@ export interface UploadDocumentsResponse {
 }
 
 // Generic types for API state
-export type LoadingState = 'idle' | 'loading' | 'success' | 'error';
+export type LoadingState = 'idle' | 'loading' | 'interacting' | 'success' | 'error';
+
+// --- Added AnalysisResult type if needed from backend ---
+export interface AnalysisResult {
+    analysis_text: string;
+    key_concepts: string[];
+    key_terms: Record<string, string>;
+    file_names: string[];
+    vector_store_id: string;
+}
+
+// --- Added User Model State Types (can move to separate file or keep here) ---
+// Duplicating definition slightly from store for clarity in API types
+export type UserInteractionOutcome = 'correct' | 'incorrect' | 'struggled' | 'summarized_well' | 'asked_question' | 'mastered';
+export type UserConceptMastery = { mastery_level: number; interaction_count: number; last_outcome: UserInteractionOutcome | null; };
+
+// Define UserModelState here if not importing from store
+export interface UserModelState {
+    concepts: Record<string, UserConceptMastery>;
+    overall_progress: number;
+    current_topic: string | null;
+    session_summary: string;
+}
+
+// +++ Interaction Types +++
+export interface InteractionRequestData {
+    type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous'; // Define interaction types
+    data?: Record<string, any>; // e.g., { answer_index: 1 } or { question_text: "..." }
+}
+
+export type InteractionContentType = 'text' | 'quiz_question' | 'quiz_feedback_item' | 'error' | 'lesson_complete';
+
+export interface InteractionResponseData {
+    content_type: InteractionContentType;
+    data: any; // Could be string (text), QuizQuestion, QuizFeedbackItem etc.
+    user_model_state: UserModelState; // Backend sends back the updated state
+}

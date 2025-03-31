@@ -6,10 +6,18 @@ import {
   LoadingState,
   QuizUserAnswer,
   QuizUserAnswers,
-  SessionAnalysis
+  SessionAnalysis,
+  QuizQuestion,
+  QuizFeedbackItem,
+  InteractionContentType,
+  UserModelState,
+  UserConceptMastery,
+  UserInteractionOutcome
 } from '@/lib/types';
+import * as api from '@/lib/api';
 
-interface SessionState {
+// Export the interface
+export interface SessionState {
   // Core data state
   sessionId: string | null;
   vectorStoreId: string | null;
@@ -23,27 +31,25 @@ interface SessionState {
   sessionAnalysis: SessionAnalysis | null;
   isSubmittingQuiz: boolean;
 
-  // --- SIMPLIFIED Stage-Based Navigation ---
-  learningStage: 'lesson' | 'quiz' | 'results' | 'complete';
-  currentQuizQuestionIndex: number;
-  currentResultItemIndex: number; // 0=summary, 1+=items
-  totalQuizQuestions: number;
+  // --- NEW State for Interaction Model ---
+  currentInteractionContent: any | null;
+  currentContentType: InteractionContentType | null;
+  userModelState: UserModelState;
+  currentQuizQuestion: QuizQuestion | null;
+  isLessonComplete: boolean;
 
   // Actions
   setSessionId: (sessionId: string) => void;
   setVectorStoreId: (vectorStoreId: string | null) => void;
-  setLessonContent: (content: LessonContent | null) => void;
-  setQuiz: (quiz: Quiz | null) => void;
-  setQuizFeedback: (feedback: QuizFeedback | null) => void;
-  setUserQuizAnswer: (questionIndex: number, answer: QuizUserAnswer) => void;
   setLoading: (state: LoadingState, message?: string) => void;
   setError: (error: string | null) => void;
   setSessionAnalysis: (analysis: SessionAnalysis | null) => void;
   setIsSubmittingQuiz: (isSubmitting: boolean) => void;
-  setLearningStage: (stage: SessionState['learningStage']) => void;
-  goToNextStep: () => void;
-  goToPreviousStep: () => void;
   resetSession: () => void;
+  setLoadingMessage: (message: string) => void;
+
+  // --- NEW Actions ---
+  sendInteraction: (type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -57,120 +63,60 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   userQuizAnswers: {},
   isSubmittingQuiz: false,
   loadingState: 'idle',
-  loadingMessage: '',
   error: null,
+  loadingMessage: '',
 
-  // --- SIMPLIFIED Initial Stage State ---
-  learningStage: 'lesson', // Start at the lesson view
-  currentQuizQuestionIndex: 0,
-  currentResultItemIndex: 0,
-  totalQuizQuestions: 0,
+  // --- NEW Initial State ---
+  currentInteractionContent: null,
+  currentContentType: null,
+  userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session initializing." },
+  currentQuizQuestion: null,
+  isLessonComplete: false,
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
-
-  setLessonContent: (content) => set({
-      lessonContent: content,
-      learningStage: 'lesson', // Reset to lesson stage when new content loads
-      currentQuizQuestionIndex: 0, // Reset quiz progress
-      currentResultItemIndex: 0, // Reset results progress
-      userQuizAnswers: {}, // Clear previous answers
-      quizFeedback: null,  // Clear previous feedback
-  }),
-  setQuiz: (quiz) => set({
-      quiz: quiz,
-      totalQuizQuestions: quiz?.questions?.length ?? 0,
-      // Don't automatically change stage
-  }),
-  setQuizFeedback: (feedback) => set({
-      quizFeedback: feedback,
-      learningStage: 'results', // Jump to results stage
-      currentResultItemIndex: 0, // Start at the summary
-  }),
-  setUserQuizAnswer: (questionIndex, answer) => set((state) => ({
-      userQuizAnswers: {
-          ...state.userQuizAnswers,
-          [questionIndex]: answer,
-      },
-  })),
-  setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
+  setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
-  setLearningStage: (stage) => set({ learningStage: stage }),
+  setLoadingMessage: (message) => set({ loadingMessage: message }),
 
-  // --- SIMPLIFIED Navigation Logic ---
-  goToNextStep: () => set((state) => {
-      const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, totalQuizQuestions, quiz, quizFeedback } = state;
-
-      if (learningStage === 'lesson') {
-          // Move from lesson to quiz (if exists) or complete
-          if (quiz && totalQuizQuestions > 0) {
-              return { learningStage: 'quiz', currentQuizQuestionIndex: 0 };
-          } else {
-              return { learningStage: 'complete' };
-          }
+  // --- REVISED Interaction Logic ---
+  sendInteraction: async (type, data) => {
+      const { sessionId } = get();
+      if (!sessionId) {
+          set({ error: "No active session.", loadingState: 'error' });
+          return;
       }
-      else if (learningStage === 'quiz') {
-          // Quiz submission is handled in the component
-          if (currentQuizQuestionIndex < totalQuizQuestions - 1) {
-              return { currentQuizQuestionIndex: currentQuizQuestionIndex + 1 };
-          } else {
-              // On last question, stay until submitted (component handles submission trigger)
-              console.log("Store: On last quiz question, component should trigger submission.");
-              return {};
+
+      set({ loadingState: 'interacting', loadingMessage: 'Thinking...', error: null });
+
+      try {
+          const response = await api.interactWithTutor(sessionId, { type, data });
+
+          let nextQuestion: QuizQuestion | null = null;
+          if(response.content_type === 'quiz_question'){
+              nextQuestion = response.data as QuizQuestion;
           }
-      } else if (learningStage === 'results') {
-         const totalResultItems = (quizFeedback?.feedback_items?.length ?? 0) + 1; // +1 for summary
-         if (currentResultItemIndex < totalResultItems - 1) {
-            return { currentResultItemIndex: currentResultItemIndex + 1 };
-         } else {
-            return { learningStage: 'complete' }; // Move to complete after last result item
-         }
+
+          set({
+              currentContentType: response.content_type,
+              currentInteractionContent: response.data,
+              userModelState: response.user_model_state, 
+              currentQuizQuestion: nextQuestion,
+              isLessonComplete: response.content_type === 'lesson_complete',
+              loadingState: 'success',
+              loadingMessage: '',
+          });
+
+      } catch (err: any) {
+          const errorMessage = err.response?.data?.detail || err.message || 'Interaction failed.';
+          set({ error: errorMessage, loadingState: 'error', loadingMessage: '' });
       }
-      // Cannot go next from 'complete'
-      return {};
-  }),
-
-  goToPreviousStep: () => set((state) => {
-      const { learningStage, currentQuizQuestionIndex, currentResultItemIndex, quiz, quizFeedback } = state;
-
-       if (learningStage === 'quiz') {
-           if (currentQuizQuestionIndex > 0) {
-               return { currentQuizQuestionIndex: currentQuizQuestionIndex - 1 };
-           } else {
-               // Go back from first quiz question to lesson
-               return { learningStage: 'lesson' };
-           }
-       } else if (learningStage === 'results') {
-           if (currentResultItemIndex > 0) {
-               return { currentResultItemIndex: currentResultItemIndex - 1 };
-           } else {
-               // Go back from results summary to last quiz question
-               if (quiz && state.totalQuizQuestions > 0) {
-                  return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions - 1 };
-               } else { // Fallback to lesson if no quiz
-                   return { learningStage: 'lesson' };
-               }
-           }
-       } else if (learningStage === 'complete') {
-            // Go back from complete to last result item or last quiz question or lesson
-            if (quizFeedback) {
-                 const totalResultItems = (quizFeedback.feedback_items.length) + 1;
-                 return { learningStage: 'results', currentResultItemIndex: totalResultItems - 1};
-            } else if (quiz && state.totalQuizQuestions > 0) { // Check total questions
-                 return { learningStage: 'quiz', currentQuizQuestionIndex: state.totalQuizQuestions - 1 };
-            } else {
-                 return { learningStage: 'lesson' };
-            }
-       }
-       // Cannot go back from 'lesson'
-       return {};
-  }),
+  },
 
   resetSession: () => set({
-    // ... reset core data ...
     sessionId: null,
     vectorStoreId: null,
     lessonContent: null,
@@ -180,12 +126,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     userQuizAnswers: {},
     isSubmittingQuiz: false,
     loadingState: 'idle',
-    loadingMessage: '',
     error: null,
-    // --- Reset Stage State ---
-    learningStage: 'lesson',
-    currentQuizQuestionIndex: 0,
-    currentResultItemIndex: 0,
-    totalQuizQuestions: 0,
+    loadingMessage: '',
+    currentInteractionContent: null,
+    currentContentType: null,
+    userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session reset." },
+    currentQuizQuestion: null,
+    isLessonComplete: false,
   }),
 }));
