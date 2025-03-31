@@ -66,11 +66,12 @@ export default function UploadPage() {
       
       setVectorStoreId(uploadResponse.vector_store_id);
 
-      const filesProcessed = uploadResponse.files_received?.length || 0;
-      toast({ title: "Upload Successful", description: `${filesProcessed} file(s) processed.` });
+      toast({ title: "Upload Successful", description: `${uploadResponse.files_received.length} file(s) processed.` });
 
       setLoading('loading');
       setLoadingMessage('Analyzing documents and preparing lesson...');
+
+      await api.triggerPlanGeneration(currentSessionId);
 
       setLoading('success');
       setLoadingMessage('Preparation complete!');
@@ -80,12 +81,14 @@ export default function UploadPage() {
     } catch (error: any) {
       console.error("Upload failed:", error);
       const errorMessage = error.response?.data?.detail || error.message || 'An unknown error occurred during upload.';
-      setError(`Upload failed: ${errorMessage}`);
+      const finalMessage = error.response?.status === 401 ? "Authentication failed. Please check your API key." : errorMessage;
+      setError(`Upload failed: ${finalMessage}`);
       setLoading('error');
       setLoadingMessage('An error occurred.');
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
+      resetSession();
     }
-  }, [selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setError, toast, setLoadingMessage]);
+  }, [selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setError, toast, setLoadingMessage, resetSession]);
 
   React.useEffect(() => {
     if (sessionId) {
@@ -113,6 +116,7 @@ export default function UploadPage() {
                   id="documents"
                   type="file"
                   multiple
+                  accept=".pdf,.doc,.docx,.txt,.md"
                   onChange={handleFileChange}
                   disabled={!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
                 />

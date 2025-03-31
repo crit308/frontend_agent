@@ -64,9 +64,8 @@ export const uploadDocuments = async (sessionId: string, files: File[]): Promise
 // --- Generation Steps ---
 // Note: The frontend reqs imply these might be fire-and-forget,
 // or you might need status endpoints depending on backend design.
-
-// Keep /plan for initial setup, remove /content trigger
-/*
+// Keep /plan trigger for initial setup after analysis
+// Renamed for clarity
 export const triggerPlanGeneration = async (sessionId: string): Promise<{ message: string }> => {
   try {
     console.log(`Triggering lesson plan generation for session ${sessionId}...`);
@@ -78,7 +77,6 @@ export const triggerPlanGeneration = async (sessionId: string): Promise<{ messag
     throw error;
   }
 };
-*/
 
 /* Removed - Orchestrator handles content flow
 export const triggerContentGeneration = async (sessionId: string): Promise<{ message: string }> => {
