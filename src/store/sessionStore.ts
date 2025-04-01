@@ -100,6 +100,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               nextQuestion = response.data as QuizQuestion;
           }
 
+          // Add Logging Before Setting State
+          console.log("Store: Updating state with:", {
+              contentType: response.content_type,
+              contentData: response.data,
+              userModel: response.user_model_state,
+              nextQ: nextQuestion
+          });
+
           set({
               currentContentType: response.content_type,
               currentInteractionContent: response.data,

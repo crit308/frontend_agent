@@ -147,75 +147,61 @@ export default function LearnPage() {
     const { toast } = useToast();
     const sessionId = params.sessionId as string | null;
 
-    // --- Updated state access using single selector + shallow ---
-    const { 
-        currentInteractionContent,
-        currentContentType,
-        userModelState,
-        currentQuizQuestion,
-        isLessonComplete,
-        loadingState,
-        error,
-        loadingMessage,
-        sendInteraction,
-        setError,
-     } = useSessionStore(
-        (state: SessionState) => ({
-            currentInteractionContent: state.currentInteractionContent,
-            currentContentType: state.currentContentType,
-            userModelState: state.userModelState,
-            currentQuizQuestion: state.currentQuizQuestion,
-            isLessonComplete: state.isLessonComplete,
-            loadingState: state.loadingState,
-            error: state.error,
-            loadingMessage: state.loadingMessage,
-            sendInteraction: state.sendInteraction,
-            setError: state.setError
-        }),
-        shallow 
-    );
+    // --- Individual state selectors ---
+    const currentInteractionContent = useSessionStore((state) => state.currentInteractionContent);
+    const currentContentType = useSessionStore((state) => state.currentContentType);
+    const currentTopic = useSessionStore((state) => state.userModelState?.current_topic ?? null);
+    const sessionSummary = useSessionStore((state) => state.userModelState?.session_summary ?? '');
+    const currentQuizQuestion = useSessionStore((state) => state.currentQuizQuestion);
+    const isLessonComplete = useSessionStore((state) => state.isLessonComplete);
+    const loadingState = useSessionStore((state) => state.loadingState);
+    const error = useSessionStore((state) => state.error);
+    const loadingMessage = useSessionStore((state) => state.loadingMessage);
+    const sendInteraction = useSessionStore((state) => state.sendInteraction);
+    const setError = useSessionStore((state) => state.setError);
 
     const [selectedQuizAnswerIndex, setSelectedQuizAnswerIndex] = useState<number | undefined>(undefined);
     const [localLoading, setLocalLoading] = useState(true);
     const [hasInitialized, setHasInitialized] = useState(false);
     const isFetchingRef = useRef(false);
 
+    // Debug logs for state tracking
+    console.log('LearnPage Render - Loading:', loadingState, 'Error:', error, 'Initialized:', hasInitialized);
+    console.log('LearnPage Render - ContentType:', currentContentType);
+    console.log('LearnPage Render - Content:', currentInteractionContent);
+    console.log('LearnPage Render - QuizQuestion:', currentQuizQuestion);
+
     // --- Initial Interaction Effect ---
     useEffect(() => {
-        if (!sessionId) {
-            setError('Session ID missing. Please start again.');
-            setLocalLoading(false);
-            return;
-        }
-        if (!hasInitialized && !isFetchingRef.current) {
-            isFetchingRef.current = true;
+        // Only run if we have a session ID and haven't fetched/initialized yet
+        if (sessionId && !hasInitialized && !isFetchingRef.current) {
+            isFetchingRef.current = true; // Mark as fetching immediately
             setLocalLoading(true);
             console.log("LearnPage: Sending initial 'start' interaction...");
+
             sendInteraction('start')
                 .then(() => {
-                    setHasInitialized(true);
+                    setHasInitialized(true); // Mark as initialized *after* success
                     console.log("LearnPage: Initial interaction successful.");
                 })
                 .catch((err: any) => {
                     console.error("LearnPage: Initial interaction failed.", err);
+                    setError(err.message || "Failed to start session");
                 })
                 .finally(() => {
+                    isFetchingRef.current = false; // Allow fetching again if needed (e.g., on error/retry)
                     setLocalLoading(false);
-                    isFetchingRef.current = false;
                 });
-        } else {
-            setLocalLoading(false);
+        } else if (hasInitialized) {
+            setLocalLoading(false); // If already initialized, ensure loading is false
         }
-    // Dependencies: only trigger when sessionId changes or initialization needed.
-    // Store actions (sendInteraction, setError) are stable refs and not needed here.
-    }, [sessionId, hasInitialized]);
+    }, [sessionId, hasInitialized]); // Keep dependencies minimal, sendInteraction and setError are stable
 
     // --- Effect to reset local answer state when content type changes ---
     useEffect(() => {
         if (currentContentType !== 'quiz_question') {
             setSelectedQuizAnswerIndex(undefined);
         }
-    // Dependency: only trigger when the content type changes
     }, [currentContentType]);
 
 
@@ -280,11 +266,11 @@ export default function LearnPage() {
             {/* Left Column (Stage Display & User Model - Simplified) */}
             <div className="w-1/6 lg:w-1/5 flex-shrink-0 bg-gray-100 dark:bg-gray-900/50 border-r border-border/50 hidden md:block">
                 <div className="p-4 h-full overflow-y-auto">
-                    {/* Current Topic - Added check for userModelState */}
-                    {userModelState?.current_topic && (
+                    {/* Current Topic */}
+                    {currentTopic && (
                          <div className="mb-4">
                             <p className="text-sm font-medium text-muted-foreground mb-1">Current Topic</p>
-                            <p className="text-sm font-semibold text-primary">{userModelState.current_topic}</p>
+                            <p className="text-sm font-semibold text-primary">{currentTopic}</p>
                         </div>
                     )}
 
@@ -300,13 +286,11 @@ export default function LearnPage() {
                         </div>
                      </div>
 
-                     {/* Progress bars removed */}
-
-                     {/* Session Summary (Optional) - Added check for userModelState */} 
-                     {userModelState?.session_summary && userModelState.session_summary !== "Session initializing." && userModelState.session_summary !== "Session reset." && (
+                     {/* Session Summary (Optional) */} 
+                     {sessionSummary && sessionSummary !== "Session initializing." && sessionSummary !== "Session reset." && (
                         <div className="mt-4 border-t pt-4">
                             <p className="text-sm font-medium text-muted-foreground mb-1">Session Summary</p>
-                            <p className="text-xs text-muted-foreground">{userModelState.session_summary}</p>
+                            <p className="text-xs text-muted-foreground">{sessionSummary || 'N/A'}</p>
                         </div>
                      )}
                 </div>
@@ -358,7 +342,7 @@ export default function LearnPage() {
                          )}
 
                          {/* Fallback for unexpected content types */}
-                         {hasInitialized && currentContentType && !['text', 'quiz_question', 'quiz_feedback_item'].includes(currentContentType) && !isLessonComplete && !error && (
+                         {hasInitialized && !['text', 'quiz_question', 'quiz_feedback_item', 'error', 'lesson_complete'].includes(currentContentType as string) && !isLessonComplete && !error && (
                             <DisplayError message={`Received unexpected or unhandled content type: ${currentContentType}`} />
                          )}
                     </div>
