@@ -199,7 +199,7 @@ export default function LearnPage() {
 
     // --- Effect to reset local answer state when content type changes ---
     useEffect(() => {
-        if (currentContentType !== 'quiz_question') {
+        if (currentContentType !== 'quiz_question' && currentContentType !== 'question') {
             setSelectedQuizAnswerIndex(undefined);
         }
     }, [currentContentType]);
@@ -210,7 +210,7 @@ export default function LearnPage() {
         // Use the action reference directly from the store hook
         if (loadingState === 'interacting' || isLessonComplete) return;
 
-        if (currentContentType === 'quiz_question') {
+        if (currentContentType === 'quiz_question' || currentContentType === 'question') {
             if (selectedQuizAnswerIndex === undefined) {
                 toast({
                     title: "Please select an answer",
@@ -227,7 +227,7 @@ export default function LearnPage() {
     // --- Button States ---
     const isPrevDisabled = true; // Previous interaction not implemented
     const isNextDisabled = loadingState === 'interacting' || isLessonComplete ||
-        (currentContentType === 'quiz_question' && selectedQuizAnswerIndex === undefined);
+        ((currentContentType === 'quiz_question' || currentContentType === 'question') && selectedQuizAnswerIndex === undefined);
 
     // --- Loading and Error States ---
     if (localLoading || (loadingState === 'loading' && !hasInitialized)) {
@@ -305,8 +305,11 @@ export default function LearnPage() {
                         {currentContentType === 'text' && currentInteractionContent && (
                             <DisplayTextContent content={currentInteractionContent} />
                         )}
+                        {currentContentType === 'explanation' && currentInteractionContent && (
+                            <DisplayTextContent content={currentInteractionContent} />
+                        )}
 
-                        {currentContentType === 'quiz_question' && currentQuizQuestion && (
+                        {(currentContentType === 'quiz_question' || currentContentType === 'question') && currentQuizQuestion && (
                             <QuizQuestion
                                 question={currentQuizQuestion}
                                 index={0} 
@@ -317,6 +320,11 @@ export default function LearnPage() {
 
                         {currentContentType === 'quiz_feedback_item' && isQuizFeedbackItem(currentInteractionContent) && (
                            <DisplayResultFeedbackItem item={currentInteractionContent} />
+                        )}
+
+                        {/* Display error content */}
+                        {currentContentType === 'error' && currentInteractionContent && (
+                            <DisplayError message={currentInteractionContent.message || 'An unknown error occurred'} />
                         )}
 
                         {/* Lesson Complete Message */} 
@@ -342,7 +350,7 @@ export default function LearnPage() {
                          )}
 
                          {/* Fallback for unexpected content types */}
-                         {hasInitialized && !['text', 'quiz_question', 'quiz_feedback_item', 'error', 'lesson_complete'].includes(currentContentType as string) && !isLessonComplete && !error && (
+                         {hasInitialized && !['explanation', 'text', 'question', 'quiz_question', 'quiz_feedback_item', 'error', 'lesson_complete'].includes(currentContentType as string) && !isLessonComplete && !error && (
                             <DisplayError message={`Received unexpected or unhandled content type: ${currentContentType}`} />
                          )}
                     </div>
@@ -360,7 +368,7 @@ export default function LearnPage() {
                         <Button onClick={handleNext} disabled={isNextDisabled}>
                             {loadingState === 'interacting'
                                 ? 'Processing...'
-                                : currentContentType === 'quiz_question'
+                                : (currentContentType === 'quiz_question' || currentContentType === 'question')
                                     ? 'Submit Answer'
                                     : 'Next' // Default for text, feedback, etc.
                             }

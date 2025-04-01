@@ -96,8 +96,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           const response = await api.interactWithTutor(sessionId, { type, data });
 
           let nextQuestion: QuizQuestion | null = null;
-          if(response.content_type === 'quiz_question'){
-              nextQuestion = response.data as QuizQuestion;
+          if (response.content_type === 'question' && response.data?.response_type === 'question') {
+              const questionResponse = response.data as any;
+              if (questionResponse.question) {
+                nextQuestion = questionResponse.question as QuizQuestion;
+              }
           }
 
           // Add Logging Before Setting State

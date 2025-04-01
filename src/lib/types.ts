@@ -207,7 +207,7 @@ export interface InteractionRequestData {
     data?: Record<string, any>; // e.g., { answer_index: 1 } or { question_text: "..." }
 }
 
-export type InteractionContentType = 'text' | 'quiz_question' | 'quiz_feedback_item' | 'error' | 'lesson_complete';
+export type InteractionContentType = 'text' | 'explanation' | 'question' | 'quiz_question' | 'quiz_feedback_item' | 'error' | 'lesson_complete';
 
 export interface InteractionResponseData {
     content_type: InteractionContentType;
