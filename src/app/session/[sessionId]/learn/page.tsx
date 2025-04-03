@@ -281,7 +281,7 @@ export default function LearnPage() {
                             {/* Ensure content type comparisons are valid */}
                             <p className={(currentContentType === 'text') ? 'font-semibold text-primary' : 'text-muted-foreground'}>Explanation</p>
                             <p className={currentContentType === 'quiz_question' ? 'font-semibold text-primary' : 'text-muted-foreground'}>Quiz Question</p>
-                            <p className={currentContentType === 'quiz_feedback_item' ? 'font-semibold text-primary' : 'text-muted-foreground'}>Feedback</p>
+                            <p className={(currentContentType === 'quiz_feedback_item' || currentContentType === 'feedback') ? 'font-semibold text-primary' : 'text-muted-foreground'}>Feedback</p>
                             <p className={isLessonComplete ? 'font-semibold text-primary' : 'text-muted-foreground'}>Complete</p>
                         </div>
                      </div>
@@ -322,6 +322,10 @@ export default function LearnPage() {
                            <DisplayResultFeedbackItem item={currentInteractionContent} />
                         )}
 
+                        {currentContentType === 'feedback' && currentInteractionContent && isQuizFeedbackItem(currentInteractionContent.feedback) && (
+                           <DisplayResultFeedbackItem item={currentInteractionContent.feedback} />
+                        )}
+
                         {/* Display error content */}
                         {currentContentType === 'error' && currentInteractionContent && (
                             <DisplayError message={currentInteractionContent.message || 'An unknown error occurred'} />
@@ -350,7 +354,7 @@ export default function LearnPage() {
                          )}
 
                          {/* Fallback for unexpected content types */}
-                         {hasInitialized && !['explanation', 'text', 'question', 'quiz_question', 'quiz_feedback_item', 'error', 'lesson_complete'].includes(currentContentType as string) && !isLessonComplete && !error && (
+                         {hasInitialized && !['explanation', 'text', 'question', 'quiz_question', 'quiz_feedback_item', 'error', 'lesson_complete', 'feedback'].includes(currentContentType as string) && !isLessonComplete && !error && (
                             <DisplayError message={`Received unexpected or unhandled content type: ${currentContentType}`} />
                          )}
                     </div>

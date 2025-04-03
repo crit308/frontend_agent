@@ -1,5 +1,5 @@
 // Corresponds to ai_tutor/agents/models.py
-import { UserModelState } from "@/store/sessionStore"; // Import UserModelState if defined there or define below
+// import { UserModelState } from "@/store/sessionStore"; // Import UserModelState if defined there or define below -- REMOVED THIS LINE
 
 export interface LearningObjective {
   title: string;
@@ -207,7 +207,7 @@ export interface InteractionRequestData {
     data?: Record<string, any>; // e.g., { answer_index: 1 } or { question_text: "..." }
 }
 
-export type InteractionContentType = 'text' | 'explanation' | 'question' | 'quiz_question' | 'quiz_feedback_item' | 'error' | 'lesson_complete';
+export type InteractionContentType = 'text' | 'explanation' | 'question' | 'quiz_question' | 'quiz_feedback_item' | 'error' | 'lesson_complete' | 'feedback';
 
 export interface InteractionResponseData {
     content_type: InteractionContentType;
