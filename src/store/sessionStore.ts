@@ -21,6 +21,7 @@ import * as api from '@/lib/api';
 export interface SessionState {
   // Core data state
   sessionId: string | null;
+  folderId: string | null;
   vectorStoreId: string | null;
   lessonContent: LessonContent | null;
   quiz: Quiz | null;
@@ -42,6 +43,7 @@ export interface SessionState {
 
   // Actions
   setSessionId: (sessionId: string) => void;
+  setSelectedFolderId: (folderId: string | null) => void;
   setVectorStoreId: (vectorStoreId: string | null) => void;
   setLoading: (state: LoadingState, message?: string) => void;
   setError: (error: string | null) => void;
@@ -58,6 +60,7 @@ export interface SessionState {
 export const useSessionStore = create<SessionState>((set, get) => ({
   // Initial State
   sessionId: null,
+  folderId: null,
   vectorStoreId: null,
   lessonContent: null,
   quiz: null,
@@ -79,6 +82,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
+  setSelectedFolderId: (folderId) => set({ folderId }),
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
@@ -134,6 +138,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   resetSession: () => set({
     sessionId: null,
+    folderId: null,
     vectorStoreId: null,
     lessonContent: null,
     quiz: null,

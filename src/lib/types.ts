@@ -1,6 +1,9 @@
 // Corresponds to ai_tutor/agents/models.py
 // import { UserModelState } from "@/store/sessionStore"; // Import UserModelState if defined there or define below -- REMOVED THIS LINE
 
+// Or import from a UUID library if you use one
+import { UUID } from "crypto";
+
 export interface LearningObjective {
   title: string;
   description: string;
@@ -165,7 +168,7 @@ export interface SessionAnalysis {
 
 // API Response Types (adjust as needed based on your actual API)
 export interface StartSessionResponse {
-  session_id: string;
+  session_id: UUID; // Use UUID
   message: string;
 }
 
@@ -174,6 +177,17 @@ export interface UploadDocumentsResponse {
   files_received: string[];
   analysis_status: string;
   message: string;
+}
+
+// --- Folder Types ---
+export interface FolderCreateRequest {
+    name: string;
+}
+
+export interface FolderResponse {
+    id: UUID; // Use UUID
+    name: string;
+    created_at: string; // ISO 8601 timestamp string
 }
 
 // Generic types for API state

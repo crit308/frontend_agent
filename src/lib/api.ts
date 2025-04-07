@@ -8,6 +8,8 @@ import {
   SessionAnalysis,
   InteractionRequestData,
   InteractionResponseData,
+  FolderCreateRequest,
+  FolderResponse,
 } from './types';
 import { supabase } from './supabaseClient'; // Import Supabase client
 
@@ -37,11 +39,14 @@ apiClient.interceptors.request.use(async (config) => {
 
 // --- Session Management ---
 
-export const startSession = async (): Promise<StartSessionResponse> => {
+export const startSession = async (folderId: string): Promise<StartSessionResponse> => {
   try {
-    console.log('Starting new session...');
-    const response = await apiClient.post<StartSessionResponse>('/sessions');
-    console.log('Session started:', response.data);
+    console.log(`Starting new session for folder ${folderId}...`);
+    const response = await apiClient.post<StartSessionResponse>(
+        '/sessions',
+        { folder_id: folderId } // Pass folder_id in the request body
+    );
+    console.log('Session started:', response.data.session_id);
     return response.data;
   } catch (error) {
     console.error('Error starting session:', error);
@@ -233,5 +238,32 @@ export const logUserSummary = async (sessionId: string, summaryData: any): Promi
     } catch (error) {
         console.error('Error logging user summary:', error);
         // Decide if this error should propagate or be silently handled
+    }
+};
+
+// --- Folder Management API Calls ---
+
+export const createFolder = async (folderData: FolderCreateRequest): Promise<FolderResponse> => {
+    try {
+        console.log('Creating new folder:', folderData.name);
+        const response = await apiClient.post<FolderResponse>('/folders', folderData);
+        console.log('Folder created:', response.data);
+        return response.data;
+    } catch (error) {
+        console.error('Error creating folder:', error);
+        throw error;
+    }
+};
+
+export const getFolders = async (): Promise<FolderResponse[]> => {
+    try {
+        console.log('Fetching folders...');
+        const response = await apiClient.get<{ folders: FolderResponse[] }>('/folders');
+        console.log('Folders fetched:', response.data.folders.length);
+        return response.data.folders;
+    } catch (error) {
+        console.error('Error fetching folders:', error);
+        // Return empty array or throw error based on preference
+        return [];
     }
 }; 
