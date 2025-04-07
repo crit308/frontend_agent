@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { SessionState, useSessionStore } from '@/store/sessionStore';
 import { shallow } from 'zustand/shallow';
 import * as api from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import AuthForm from '@/components/AuthForm';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +17,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 export default function UploadPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   
   const sessionId = useSessionStore((state) => state.sessionId);
@@ -35,12 +38,17 @@ export default function UploadPage() {
   };
 
   const handleUpload = useCallback(async () => {
+    if (!user) {
+      toast({ title: "Not Authenticated", description: "Please log in to start a session.", variant: "destructive" });
+      return;
+    }
     if (selectedFiles.length === 0) {
       toast({ title: "No files selected", description: "Please select documents to upload.", variant: "destructive" });
       return;
     }
 
     setLoading('loading');
+    resetSession();
     setLoadingMessage('Starting session...');
     setError(null);
 
@@ -50,7 +58,7 @@ export default function UploadPage() {
       const currentSessionId = sessionResponse.session_id;
 
       setLoading('loading');
-      setLoadingMessage(`Uploading ${selectedFiles.length} document(s)...`);
+      setLoadingMessage(`Uploading ${selectedFiles.length} document(s) for session ${currentSessionId}...`);
       const uploadResponse = await api.uploadDocuments(currentSessionId, selectedFiles);
       
       console.log('Upload response:', uploadResponse);
@@ -88,65 +96,70 @@ export default function UploadPage() {
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
       resetSession();
     }
-  }, [selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setError, toast, setLoadingMessage, resetSession]);
+  }, [selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setError, toast, setLoadingMessage, resetSession, user]);
 
   React.useEffect(() => {
-    if (sessionId) {
-        // Optional: Decide if you want to reset automatically when visiting '/'
-        // resetSession();
-        // console.log("Session reset on visiting upload page.");
-    }
+    // Reset zustand session state if user logs out or page is revisited without an active session flow
+    // resetSession(); // Maybe reset only if there's no user? Depends on desired UX.
   }, [sessionId]);
+
+  if (authLoading) {
+    return <LoadingSpinner message="Loading authentication..." />;
+  }
 
   return (
     <div className="flex justify-center items-center min-h-screen">
-      <Card className="w-full max-w-lg">
-        <CardHeader>
-          <CardTitle>AI Tutor Setup</CardTitle>
-          <CardDescription>Upload your documents to start learning.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error') ? (
-            <LoadingSpinner message={loadingMessage} />
-          ) : (
-            <div className="grid w-full items-center gap-4">
-              <div className="flex flex-col space-y-1.5">
-                <Label htmlFor="documents">Documents</Label>
-                <Input
-                  id="documents"
-                  type="file"
-                  multiple
-                  accept=".pdf,.doc,.docx,.txt,.md"
-                  onChange={handleFileChange}
-                  disabled={!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
-                />
-              </div>
-              {selectedFiles.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium mb-1">Selected files:</p>
-                  <ul className="list-disc list-inside text-sm text-muted-foreground max-h-32 overflow-y-auto">
-                    {selectedFiles.map((file, index) => (
-                      <li key={index}>{file.name}</li>
-                    ))}
-                  </ul>
+      {!user ? (
+        <AuthForm />
+      ) : (
+        <Card className="w-full max-w-lg">
+          <CardHeader>
+            <CardTitle>AI Tutor Setup</CardTitle>
+            <CardDescription>Upload your documents to start learning.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error') ? (
+              <LoadingSpinner message={loadingMessage} />
+            ) : (
+              <div className="grid w-full items-center gap-4">
+                <div className="flex flex-col space-y-1.5">
+                  <Label htmlFor="documents">Documents</Label>
+                  <Input
+                    id="documents"
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.txt,.md"
+                    onChange={handleFileChange}
+                    disabled={!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
+                  />
                 </div>
-              )}
-               {error && (
-                 <p className="text-sm text-red-600">{error}</p>
-               )}
-            </div>
-          )}
-        </CardContent>
-        <CardFooter>
-          <Button
-            onClick={handleUpload}
-            disabled={selectedFiles.length === 0 || !(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
-            className="w-full"
-          >
-            {!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error') ? 'Processing...' : 'Start Learning'}
-          </Button>
-        </CardFooter>
-      </Card>
+                {selectedFiles.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-1">Selected files:</p>
+                    <ul className="list-disc list-inside text-sm text-muted-foreground max-h-32 overflow-y-auto">
+                      {selectedFiles.map((file, index) => (
+                        <li key={index}>{file.name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                 {error && (
+                   <p className="text-sm text-red-600">{error}</p>
+                 )}
+              </div>
+            )}
+          </CardContent>
+          <CardFooter>
+            <Button
+              onClick={handleUpload}
+              disabled={selectedFiles.length === 0 || !(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error')}
+              className="w-full"
+            >
+              {!(loadingState === 'idle' || loadingState === 'success' || loadingState === 'error') ? 'Processing...' : 'Start Learning'}
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
     </div>
   );
 }

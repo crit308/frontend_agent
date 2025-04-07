@@ -14,6 +14,7 @@ import {
   UserConceptMastery,
   UserInteractionOutcome
 } from '@/lib/types';
+import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
 
 // Export the interface
@@ -28,6 +29,7 @@ export interface SessionState {
   loadingState: LoadingState;
   loadingMessage: string;
   error: string | null;
+  user: User | null;
   sessionAnalysis: SessionAnalysis | null;
   isSubmittingQuiz: boolean;
 
@@ -47,6 +49,7 @@ export interface SessionState {
   setIsSubmittingQuiz: (isSubmitting: boolean) => void;
   resetSession: () => void;
   setLoadingMessage: (message: string) => void;
+  setUser: (user: User | null) => void;
 
   // --- NEW Actions ---
   sendInteraction: (type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
@@ -65,6 +68,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loadingState: 'idle',
   error: null,
   loadingMessage: '',
+  user: null,
 
   // --- NEW Initial State ---
   currentInteractionContent: null,
@@ -78,6 +82,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
   setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
+  setUser: (user) => set({ user }),
   setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
   setLoadingMessage: (message) => set({ loadingMessage: message }),
@@ -140,6 +145,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     error: null,
     loadingMessage: '',
     currentInteractionContent: null,
+    user: null,
     currentContentType: null,
     userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session reset." },
     currentQuizQuestion: null,

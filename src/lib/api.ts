@@ -9,6 +9,7 @@ import {
   InteractionRequestData,
   InteractionResponseData,
 } from './types';
+import { supabase } from './supabaseClient'; // Import Supabase client
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'; // Use environment variable
 
@@ -17,6 +18,21 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// --- Axios interceptor to add Auth token ---
+apiClient.interceptors.request.use(async (config) => {
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (session?.access_token) {
+    config.headers.Authorization = `Bearer ${session.access_token}`;
+    console.log("Attaching Supabase token to request to:", config.url); // Debug log
+  } else {
+    console.log("No Supabase session found, request sent without token to:", config.url); // Debug log
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
 });
 
 // --- Session Management ---

@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { SessionState, useSessionStore } from '@/store/sessionStore';
 import { shallow } from 'zustand/shallow';
+import { useAuth } from '@/contexts/AuthContext';
 import {
     QuizQuestion as QuizQuestionType,
     QuizFeedbackItem,
@@ -145,6 +146,7 @@ export default function LearnPage() {
     const params = useParams();
     const router = useRouter();
     const { toast } = useToast();
+    const { user, loading: authLoading } = useAuth();
     const sessionId = params.sessionId as string | null;
 
     // --- Individual state selectors ---
@@ -168,10 +170,17 @@ export default function LearnPage() {
     // Debug logs for state tracking
     console.log('LearnPage Render - Loading:', loadingState, 'Error:', error, 'Initialized:', hasInitialized);
     console.log('LearnPage Render - ContentType:', currentContentType);
-    console.log('LearnPage Render - Content:', currentInteractionContent);
+    console.log('LearnPage Render - Auth User:', user);
     console.log('LearnPage Render - QuizQuestion:', currentQuizQuestion);
 
     // --- Initial Interaction Effect ---
+    useEffect(() => {
+        // Redirect if not authenticated
+        if (!authLoading && !user) {
+            router.push('/'); // Redirect to home/login page
+        }
+    }, [user, authLoading, router]);
+
     useEffect(() => {
         // Only run if we have a session ID and haven't fetched/initialized yet
         if (sessionId && !hasInitialized && !isFetchingRef.current) {
@@ -230,7 +239,7 @@ export default function LearnPage() {
         ((currentContentType === 'quiz_question' || currentContentType === 'question') && selectedQuizAnswerIndex === undefined);
 
     // --- Loading and Error States ---
-    if (localLoading || (loadingState === 'loading' && !hasInitialized)) {
+    if (authLoading || localLoading || (loadingState === 'loading' && !hasInitialized)) {
         return (
             <div className="flex h-screen items-center justify-center">
                 <LoadingSpinner message={loadingMessage || 'Initiating lesson...'} />
