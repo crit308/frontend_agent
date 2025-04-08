@@ -44,7 +44,7 @@ export const startSession = async (folderId: string): Promise<StartSessionRespon
     console.log(`Starting new session for folder ${folderId}...`);
     const response = await apiClient.post<StartSessionResponse>(
         '/sessions',
-        { folder_id: folderId } // Pass folder_id in the request body
+        { folder_id: folderId } // Pass folder_id in the request body (ensure backend expects this)
     );
     console.log('Session started:', response.data.session_id);
     return response.data;

@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from "@/components/ui/use-toast";
-import { FolderPlus, Folder as FolderIcon } from 'lucide-react';
+import { FolderPlus, Folder as FolderIcon, UploadCloud } from 'lucide-react';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { FolderResponse } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
@@ -22,8 +22,8 @@ export default function HomePage() {
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [folders, setFolders] = useState<FolderResponse[]>([]);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [folders, setFolders] = useState<FolderResponse[] | null>(null);
+  const selectedFolderId = useSessionStore((state) => state.folderId);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [pageLoading, setPageLoading] = useState(true);
@@ -34,7 +34,7 @@ export default function HomePage() {
   const setLoading = useSessionStore((state) => state.setLoading);
   const setSessionId = useSessionStore((state) => state.setSessionId);
   const setVectorStoreId = useSessionStore((state) => state.setVectorStoreId);
-  const setSelectedFolderIdStore = useSessionStore((state) => state.setSelectedFolderId);
+  const setSelectedFolderId = useSessionStore((state) => state.setSelectedFolderId);
   const setError = useSessionStore((state) => state.setError);
   const resetSession = useSessionStore((state) => state.resetSession);
   const setLoadingMessage = useSessionStore((state) => state.setLoadingMessage);
@@ -42,15 +42,20 @@ export default function HomePage() {
   useEffect(() => {
     if (user) {
       setPageLoading(true);
+      setFolders(null);
       api.getFolders()
-        .then(setFolders)
+        .then(fetchedFolders => {
+          setFolders(fetchedFolders);
+          if (selectedFolderId && !fetchedFolders.some(f => f.id === selectedFolderId)) {
+            setSelectedFolderId(null);
+          }
+        })
         .catch(err => {
           console.error("Failed to fetch folders:", err);
           toast({ title: "Error", description: "Could not fetch your folders.", variant: "destructive" });
+          setFolders([]);
         })
         .finally(() => setPageLoading(false));
-    } else {
-      setPageLoading(false);
     }
   }, [user, toast]);
 
@@ -60,7 +65,7 @@ export default function HomePage() {
     }
   };
 
-  const handleStartLearning = useCallback(async () => {
+  const handleStartLearning = useCallback(async (isNewFolder: boolean = false) => {
     if (!user) {
       toast({ title: "Not Authenticated", description: "Please log in to start a session.", variant: "destructive" });
       return;
@@ -69,46 +74,53 @@ export default function HomePage() {
       toast({ title: "No Folder Selected", description: "Please select or create a folder first.", variant: "destructive" });
       return;
     }
-    if (selectedFiles.length === 0) {
+    if (isNewFolder && selectedFiles.length === 0) {
       toast({ title: "No files selected", description: "Please select documents to upload.", variant: "destructive" });
       return;
     }
 
     setLoading('loading');
-    setSelectedFolderIdStore(selectedFolderId);
     resetSession();
+    setSelectedFolderId(selectedFolderId);
     setLoadingMessage('Starting session...');
     setError(null);
 
     try {
+      console.log(`Starting session for ${isNewFolder ? 'new' : 'existing'} folder: ${selectedFolderId}`);
       const sessionResponse = await api.startSession(selectedFolderId);
-      setSessionId(sessionResponse.session_id.toString());
-      const currentSessionId = sessionResponse.session_id.toString();
+      const currentSessionId = sessionResponse.session_id;
+      setSessionId(currentSessionId);
+      console.log(`Session started with ID: ${currentSessionId}`);
+
+      if (isNewFolder || selectedFiles.length > 0) {
+        if (selectedFiles.length === 0) {
+          throw new Error("Internal logic error: Files required for new folder but none selected.");
+        }
+        setLoading('loading');
+        setLoadingMessage(`Uploading ${selectedFiles.length} document(s) for session ${currentSessionId}...`);
+        console.log(`Uploading ${selectedFiles.length} files for session ${currentSessionId}...`);
+        const uploadResponse = await api.uploadDocuments(currentSessionId, selectedFiles);
+
+        console.log('Upload response:', uploadResponse);
+
+        if (!uploadResponse) {
+          throw new Error('No response received from server during upload.');
+        }
+
+        if (uploadResponse.vector_store_id) {
+          setVectorStoreId(uploadResponse.vector_store_id);
+        }
+
+        toast({ title: "Upload Successful", description: `${uploadResponse.files_received.length} file(s) processed.` });
+        setSelectedFiles([]);
+      } else {
+        console.log("Skipping document upload for existing folder.");
+      }
 
       setLoading('loading');
-      setLoadingMessage(`Uploading ${selectedFiles.length} document(s) for session ${currentSessionId}...`);
-      const uploadResponse = await api.uploadDocuments(currentSessionId, selectedFiles);
-      
-      console.log('Upload response:', uploadResponse);
-      
-      if (!uploadResponse) {
-        throw new Error('No response received from server');
-      }
-      
-      if (!uploadResponse.vector_store_id) {
-        console.error('Invalid upload response:', uploadResponse);
-        throw new Error('Server response missing vector_store_id');
-      }
-      
-      setVectorStoreId(uploadResponse.vector_store_id);
-
-      toast({ title: "Upload Successful", description: `${uploadResponse.files_received.length} file(s) processed.` });
-
-      setLoading('loading');
-      setLoadingMessage('Analyzing documents and preparing lesson...');
-
+      setLoadingMessage('Preparing lesson plan...');
+      console.log(`Triggering plan generation for session ${currentSessionId}...`);
       await api.triggerPlanGeneration(currentSessionId);
-
       setLoading('success');
       setLoadingMessage('Preparation complete!');
 
@@ -122,9 +134,8 @@ export default function HomePage() {
       setLoading('error');
       setLoadingMessage('An error occurred.');
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
-      resetSession();
     }
-  }, [user, selectedFolderId, selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setSelectedFolderIdStore, setError, toast, setLoadingMessage, resetSession]);
+  }, [user, selectedFolderId, selectedFiles, router, setLoading, setSessionId, setVectorStoreId, setSelectedFolderId, setError, toast, setLoadingMessage, resetSession]);
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,10 +146,10 @@ export default function HomePage() {
     setIsCreatingFolder(true);
     try {
       const newFolder = await api.createFolder({ name: newFolderName });
-      setFolders(prev => [newFolder, ...prev]);
-      setSelectedFolderId(newFolder.id.toString());
+      setFolders(prev => prev ? [newFolder, ...prev] : [newFolder]);
+      setSelectedFolderId(newFolder.id);
       setNewFolderName('');
-      toast({ title: "Folder Created", description: `\"${newFolder.name}\" created successfully.` });
+      toast({ title: "Folder Created", description: `"${newFolder.name}" created successfully.` });
     } catch (error: any) {
       console.error("Folder creation failed:", error);
       toast({ title: "Folder Creation Failed", description: error.message || "Could not create folder.", variant: "destructive" });
@@ -147,8 +158,13 @@ export default function HomePage() {
     }
   };
 
-  if (authLoading || pageLoading) {
-    return <LoadingSpinner message="Loading authentication..." />;
+  const handleSelectFolder = (folderId: string | null) => {
+    setSelectedFolderId(folderId);
+    setSelectedFiles([]);
+  };
+
+  if (authLoading || folders === null) {
+    return <LoadingSpinner message="Loading user data..." />;
   }
 
   return (
@@ -164,24 +180,27 @@ export default function HomePage() {
           <CardContent className="space-y-6">
             <div>
               <Label htmlFor="folder-select">Select Folder</Label>
-              <div className="flex gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1">
                 <select
                   id="folder-select"
                   value={selectedFolderId ?? ''}
-                  onChange={(e) => setSelectedFolderId(e.target.value || null)}
-                  className="flex-grow p-2 border rounded-md bg-transparent disabled:opacity-50"
+                  onChange={(e) => handleSelectFolder(e.target.value || null)}
+                  className="flex-grow p-2 border rounded-md bg-background disabled:opacity-50"
                   disabled={folders.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
                 >
                   <option value="" disabled>-- Select a folder --</option>
                   {folders.map(folder => (
-                    <option key={folder.id.toString()} value={folder.id.toString()}>{folder.name}</option>
+                    <option key={folder.id} value={folder.id}>{folder.name}</option>
                   ))}
                 </select>
-                <Button variant="outline" size="icon" onClick={() => setSelectedFolderId(null)} title="Deselect Folder" disabled={!selectedFolderId}>
+                <Button variant="outline" size="icon" onClick={() => handleSelectFolder(null)} title="Deselect Folder" disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}>
                   <FolderIcon className="h-4 w-4" />
                 </Button>
               </div>
-              {folders.length === 0 && <p className="text-xs text-muted-foreground mt-1">No folders found. Create one below.</p>}
+              {!pageLoading && folders.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">No folders found. Create one below.</p>
+              )}
+              {pageLoading && <p className="text-xs text-muted-foreground mt-1">Loading folders...</p>}
             </div>
 
             <form onSubmit={handleCreateFolder} className="space-y-2">
@@ -194,7 +213,7 @@ export default function HomePage() {
                   onChange={(e) => setNewFolderName(e.target.value)}
                   disabled={isCreatingFolder || loadingState === 'loading' || loadingState === 'interacting'}
                 />
-                <Button type="submit" disabled={!newFolderName.trim() || isCreatingFolder}>
+                <Button type="submit" disabled={!newFolderName.trim() || isCreatingFolder || loadingState === 'loading' || loadingState === 'interacting'}>
                   {isCreatingFolder ? <LoadingSpinner size={16} /> : <FolderPlus className="h-4 w-4" />}
                 </Button>
               </div>
@@ -204,7 +223,7 @@ export default function HomePage() {
 
             {selectedFolderId && (
               <div className="space-y-2">
-                <Label htmlFor="documents">Upload Documents to "{folders.find(f => f.id.toString() === selectedFolderId)?.name}"</Label>
+                <Label htmlFor="documents">Upload Documents (Required for new folders)</Label>
                 <Input
                   id="documents"
                   type="file"
@@ -212,6 +231,7 @@ export default function HomePage() {
                   accept=".pdf,.doc,.docx,.txt,.md"
                   onChange={handleFileChange}
                   disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}
+                  className="cursor-pointer file:cursor-pointer"
                 />
                 {selectedFiles.length > 0 && (
                   <ul className="text-xs text-muted-foreground list-disc list-inside">
@@ -228,11 +248,11 @@ export default function HomePage() {
           </CardContent>
           <CardFooter>
             <Button
-              onClick={handleStartLearning}
-              disabled={!selectedFolderId || selectedFiles.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
+              onClick={() => handleStartLearning(selectedFiles.length > 0)}
+              disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}
               className="w-full"
             >
-              {loadingState === 'loading' || loadingState === 'interacting' ? 'Processing...' : 'Upload & Start Learning'}
+              {loadingState === 'loading' || loadingState === 'interacting' ? 'Processing...' : (selectedFiles.length > 0 ? <><UploadCloud className="mr-2 h-4 w-4" /> Upload & Start</> : 'Start Learning with Existing Docs')}
             </Button>
           </CardFooter>
         </Card>

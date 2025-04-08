@@ -17,6 +17,17 @@ import { Label } from "@/components/ui/label";
 // Helper to format score
 const formatScore = (score: number) => score ? score.toFixed(1) : 'N/A';
 
+// Helper function to safely get progress value
+const getProgressValue = (value: number | null | undefined): number => {
+  if (typeof value === 'number' && !isNaN(value) && value >= 0 && value <= 100) {
+    return value;
+  }
+  return 0; // Default to 0 if invalid or null/undefined
+};
+
+// Type assertion for Progress component props
+type SafeProgressProps = Omit<React.ComponentPropsWithoutRef<typeof Progress>, 'value'> & { value: number };
+
 export default function AnalysisPage() {
   const params = useParams();
   const router = useRouter();
@@ -57,7 +68,7 @@ export default function AnalysisPage() {
         } else {
           setSessionAnalysis(data);
         }
-        setLoading('success');
+        setLoading('idle');
       } catch (err: any) {
         console.error("Failed to fetch session analysis:", err);
         const errorMessage = err.response?.data?.detail || err.message || 'Failed to load session analysis.';
@@ -114,8 +125,8 @@ export default function AnalysisPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>Overall Effectiveness ({formatScore(sessionAnalysis.overall_effectiveness)} / 100)</Label>
-            <Progress value={sessionAnalysis.overall_effectiveness || 0} className="w-full" />
+            <Label>Overall Effectiveness ({formatScore(sessionAnalysis.overall_effectiveness ?? 0)} / 100)</Label>
+            <Progress {...{ value: getProgressValue(sessionAnalysis.overall_effectiveness) } as SafeProgressProps} className="w-full" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>

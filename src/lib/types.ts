@@ -168,12 +168,12 @@ export interface SessionAnalysis {
 
 // API Response Types (adjust as needed based on your actual API)
 export interface StartSessionResponse {
-  session_id: UUID; // Use UUID
+  session_id: string; // Keep as string for easier handling, backend uses UUID
   message: string;
 }
 
 export interface UploadDocumentsResponse {
-  vector_store_id: string | null;
+  vector_store_id?: string | null; // Make optional as it might come from session context
   files_received: string[];
   analysis_status: string;
   message: string;
@@ -185,7 +185,7 @@ export interface FolderCreateRequest {
 }
 
 export interface FolderResponse {
-    id: UUID; // Use UUID
+    id: string; // Keep as string for easier frontend handling
     name: string;
     created_at: string; // ISO 8601 timestamp string
 }
