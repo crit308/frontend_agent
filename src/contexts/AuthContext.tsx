@@ -27,44 +27,67 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const setStoreUser = useSessionStore((state) => state.setUser); // Get action from store
 
     useEffect(() => {
+        console.log("AuthProvider: useEffect started. Attempting to get session...");
+        setLoading(true); // Ensure loading starts true
+
         const getSession = async () => {
-            setLoading(true);
-            const { data: { session }, error } = await supabase.auth.getSession();
-            if (error) {
-                console.error("Error getting session:", error);
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
+                console.log("AuthProvider: getSession completed.", { session, error }); // Log result
+
+                if (error) {
+                    console.error("AuthProvider: Error getting session:", error.message);
+                    // Optionally: Show a toast or set an error state here
+                }
+                setSession(session);
+                const currentUser = session?.user ?? null;
+                setUserState(currentUser);
+                setStoreUser(currentUser);
+            } catch (catchError: any) {
+                console.error("AuthProvider: Exception during getSession:", catchError);
+                // Handle unexpected errors during the async call itself
+                setSession(null);
+                setUserState(null);
+                setStoreUser(null);
+            } finally {
+                console.log("AuthProvider: Setting loading to false.");
+                setLoading(false); // Ensure loading is set to false regardless of outcome
             }
-            setSession(session);
-            setUserState(session?.user ?? null);
-            setStoreUser(session?.user ?? null); // Update zustand store
-            setLoading(false);
         };
 
         getSession();
 
         const { data: authListener } = supabase.auth.onAuthStateChange(
             async (_event, session) => {
-                console.log("Supabase auth state changed:", _event, session);
+                console.log("AuthProvider: onAuthStateChange triggered.", { _event, session });
                 setSession(session);
-                setUserState(session?.user ?? null);
-                setStoreUser(session?.user ?? null); // Update zustand store
-                // No need to setLoading(false) here as initial load handles it
+                const currentUser = session?.user ?? null;
+                setUserState(currentUser);
+                setStoreUser(currentUser);
+                // Ensure loading is false if the initial getSession finished quickly
+                // and the auth state changes immediately after.
+                 if (loading) {
+                     setLoading(false);
+                 }
             }
         );
 
         return () => {
+            console.log("AuthProvider: Unsubscribing auth listener.");
             authListener.subscription?.unsubscribe();
         };
     }, [setStoreUser]); // Add setStoreUser dependency
 
     const signOut = async () => {
-        setLoading(true);
+        // setLoading(true); // Consider if spinner is needed during sign out
+        console.log("AuthProvider: Signing out...");
         const { error } = await supabase.auth.signOut();
         if (error) {
-            console.error("Error signing out:", error);
+            console.error("AuthProvider: Error signing out:", error);
             // Handle error (e.g., show toast)
         }
         // State updates handled by onAuthStateChange listener
-        setLoading(false);
+        // setLoading(false); // Corresponding setLoading(false) if spinner used
     };
 
     const value = {
@@ -75,10 +98,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Add other auth methods here
     };
 
+    console.log("AuthProvider: Rendering. Loading state:", loading);
+
     // Render children only after initial auth check is complete
     return (
         <AuthContext.Provider value={value}>
-            {loading ? <div className="flex h-screen items-center justify-center"><LoadingSpinner message="Initializing..." /></div> : children}
+            {/* Show loading spinner ONLY during the initial load */}
+            {loading ? <div className="flex h-screen items-center justify-center"><LoadingSpinner message="Loading user data..." /></div> : children}
         </AuthContext.Provider>
     );
 };

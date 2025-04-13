@@ -40,6 +40,11 @@ export default function HomePage() {
   const setLoadingMessage = useSessionStore((state) => state.setLoadingMessage);
 
   useEffect(() => {
+    if (authLoading) {
+      setPageLoading(true);
+      return;
+    }
+
     if (user) {
       setPageLoading(true);
       setFolders(null);
@@ -56,8 +61,11 @@ export default function HomePage() {
           setFolders([]);
         })
         .finally(() => setPageLoading(false));
+    } else {
+      setFolders(null);
+      setPageLoading(false);
     }
-  }, [user, toast]);
+  }, [user, authLoading, toast, setSelectedFolderId]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -163,7 +171,7 @@ export default function HomePage() {
     setSelectedFiles([]);
   };
 
-  if (authLoading || folders === null) {
+  if (authLoading) {
     return <LoadingSpinner message="Loading user data..." />;
   }
 
@@ -172,90 +180,93 @@ export default function HomePage() {
       {!user ? (
         <AuthForm />
       ) : (
-        <Card className="w-full max-w-2xl">
-          <CardHeader>
-            <CardTitle>AI Tutor Dashboard</CardTitle>
-            <CardDescription>Select a folder and upload documents to begin.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div>
-              <Label htmlFor="folder-select">Select Folder</Label>
-              <div className="flex items-center gap-2 mt-1">
-                <select
-                  id="folder-select"
-                  value={selectedFolderId ?? ''}
-                  onChange={(e) => handleSelectFolder(e.target.value || null)}
-                  className="flex-grow p-2 border rounded-md bg-background disabled:opacity-50"
-                  disabled={folders.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
-                >
-                  <option value="" disabled>-- Select a folder --</option>
-                  {folders.map(folder => (
-                    <option key={folder.id} value={folder.id}>{folder.name}</option>
-                  ))}
-                </select>
-                <Button variant="outline" size="icon" onClick={() => handleSelectFolder(null)} title="Deselect Folder" disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}>
-                  <FolderIcon className="h-4 w-4" />
-                </Button>
-              </div>
-              {!pageLoading && folders.length === 0 && (
-                <p className="text-xs text-muted-foreground mt-1">No folders found. Create one below.</p>
-              )}
-              {pageLoading && <p className="text-xs text-muted-foreground mt-1">Loading folders...</p>}
-            </div>
-
-            <form onSubmit={handleCreateFolder} className="space-y-2">
-              <Label htmlFor="new-folder-name">Create New Folder</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="new-folder-name"
-                  placeholder="Enter folder name..."
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  disabled={isCreatingFolder || loadingState === 'loading' || loadingState === 'interacting'}
-                />
-                <Button type="submit" disabled={!newFolderName.trim() || isCreatingFolder || loadingState === 'loading' || loadingState === 'interacting'}>
-                  {isCreatingFolder ? <LoadingSpinner size={16} /> : <FolderPlus className="h-4 w-4" />}
-                </Button>
-              </div>
-            </form>
-
-            <Separator />
-
-            {selectedFolderId && (
-              <div className="space-y-2">
-                <Label htmlFor="documents">Upload Documents (Required for new folders)</Label>
-                <Input
-                  id="documents"
-                  type="file"
-                  multiple
-                  accept=".pdf,.doc,.docx,.txt,.md"
-                  onChange={handleFileChange}
-                  disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}
-                  className="cursor-pointer file:cursor-pointer"
-                />
-                {selectedFiles.length > 0 && (
-                  <ul className="text-xs text-muted-foreground list-disc list-inside">
-                    {selectedFiles.map((file, index) => <li key={index}>{file.name}</li>)}
-                  </ul>
+        pageLoading ? (
+          <LoadingSpinner message="Loading folders..." />
+        ) : (
+          <Card className="w-full max-w-2xl">
+            <CardHeader>
+              <CardTitle>AI Tutor Dashboard</CardTitle>
+              <CardDescription>Select a folder and upload documents to begin.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <Label htmlFor="folder-select">Select Folder</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <select
+                    id="folder-select"
+                    value={selectedFolderId ?? ''}
+                    onChange={(e) => handleSelectFolder(e.target.value || null)}
+                    className="flex-grow p-2 border rounded-md bg-background disabled:opacity-50"
+                    disabled={!folders || folders.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
+                  >
+                    <option value="" disabled>-- Select a folder --</option>
+                    {folders && folders.map(folder => (
+                      <option key={folder.id} value={folder.id}>{folder.name}</option>
+                    ))}
+                  </select>
+                  <Button variant="outline" size="icon" onClick={() => handleSelectFolder(null)} title="Deselect Folder" disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}>
+                    <FolderIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+                {folders && folders.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">No folders found. Create one below.</p>
                 )}
               </div>
-            )}
 
-            {loadingState !== 'idle' && loadingState !== 'success' && (
-              <LoadingSpinner message={loadingMessage} />
-            )}
-            {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
-          </CardContent>
-          <CardFooter>
-            <Button
-              onClick={() => handleStartLearning(selectedFiles.length > 0)}
-              disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}
-              className="w-full"
-            >
-              {loadingState === 'loading' || loadingState === 'interacting' ? 'Processing...' : (selectedFiles.length > 0 ? <><UploadCloud className="mr-2 h-4 w-4" /> Upload & Start</> : 'Start Learning with Existing Docs')}
-            </Button>
-          </CardFooter>
-        </Card>
+              <form onSubmit={handleCreateFolder} className="space-y-2">
+                <Label htmlFor="new-folder-name">Create New Folder</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="new-folder-name"
+                    placeholder="Enter folder name..."
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    disabled={isCreatingFolder || loadingState === 'loading' || loadingState === 'interacting'}
+                  />
+                  <Button type="submit" disabled={!newFolderName.trim() || isCreatingFolder || loadingState === 'loading' || loadingState === 'interacting'}>
+                    {isCreatingFolder ? <LoadingSpinner size={16} /> : <FolderPlus className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </form>
+
+              <Separator />
+
+              {selectedFolderId && (
+                <div className="space-y-2">
+                  <Label htmlFor="documents">Upload Documents (Required for new folders)</Label>
+                  <Input
+                    id="documents"
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.txt,.md"
+                    onChange={handleFileChange}
+                    disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}
+                    className="cursor-pointer file:cursor-pointer"
+                  />
+                  {selectedFiles.length > 0 && (
+                    <ul className="text-xs text-muted-foreground list-disc list-inside">
+                      {selectedFiles.map((file, index) => <li key={index}>{file.name}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {loadingState !== 'idle' && loadingState !== 'success' && (
+                <LoadingSpinner message={loadingMessage} />
+              )}
+              {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+            </CardContent>
+            <CardFooter>
+              <Button
+                onClick={() => handleStartLearning(selectedFiles.length > 0)}
+                disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}
+                className="w-full"
+              >
+                {loadingState === 'loading' || loadingState === 'interacting' ? 'Processing...' : (selectedFiles.length > 0 ? <><UploadCloud className="mr-2 h-4 w-4" /> Upload & Start</> : 'Start Learning with Existing Docs')}
+              </Button>
+            </CardFooter>
+          </Card>
+        )
       )}
     </div>
   );
