@@ -125,10 +125,6 @@ export default function HomePage() {
         console.log("Skipping document upload for existing folder.");
       }
 
-      setLoading('loading');
-      setLoadingMessage('Preparing lesson plan...');
-      console.log(`Triggering plan generation for session ${currentSessionId}...`);
-      await api.triggerPlanGeneration(currentSessionId);
       setLoading('success');
       setLoadingMessage('Preparation complete!');
 

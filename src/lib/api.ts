@@ -87,6 +87,7 @@ export const uploadDocuments = async (sessionId: string, files: File[]): Promise
 // or you might need status endpoints depending on backend design.
 // Keep /plan trigger for initial setup after analysis
 // Renamed for clarity
+/*
 export const triggerPlanGeneration = async (sessionId: string): Promise<{ message: string }> => {
   try {
     console.log(`Triggering lesson plan generation for session ${sessionId}...`);
@@ -98,6 +99,7 @@ export const triggerPlanGeneration = async (sessionId: string): Promise<{ messag
     throw error;
   }
 };
+*/
 
 /* Removed - Orchestrator handles content flow
 export const triggerContentGeneration = async (sessionId: string): Promise<{ message: string }> => {
@@ -116,6 +118,7 @@ export const triggerContentGeneration = async (sessionId: string): Promise<{ mes
 // --- Data Fetching ---
 
 // Keep getLessonPlan if needed for initial display or context, but less critical now
+/*
 export const getLessonPlan = async (sessionId: string): Promise<LessonPlan> => {
   try {
     console.log(`Fetching lesson plan for session ${sessionId}...`);
@@ -127,6 +130,7 @@ export const getLessonPlan = async (sessionId: string): Promise<LessonPlan> => {
     throw error;
   }
 };
+*/
 
 // Remove getLessonContent - content comes via /interact
 /*
