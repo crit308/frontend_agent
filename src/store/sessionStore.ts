@@ -9,10 +9,11 @@ import {
   SessionAnalysis,
   QuizQuestion,
   QuizFeedbackItem,
-  InteractionContentType,
   UserModelState,
   UserConceptMastery,
-  UserInteractionOutcome
+  UserInteractionOutcome,
+  FocusObjective,
+  TutorInteractionResponse
 } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
@@ -35,11 +36,12 @@ export interface SessionState {
   isSubmittingQuiz: boolean;
 
   // --- NEW State for Interaction Model ---
-  currentInteractionContent: any | null;
-  currentContentType: InteractionContentType | null;
+  currentInteractionContent: TutorInteractionResponse | null;
+  currentContentType: string | null;
   userModelState: UserModelState;
   currentQuizQuestion: QuizQuestion | null;
   isLessonComplete: boolean;
+  focusObjective: FocusObjective | null;
 
   // Actions
   setSessionId: (sessionId: string) => void;
@@ -52,6 +54,7 @@ export interface SessionState {
   resetSession: () => void;
   setLoadingMessage: (message: string) => void;
   setUser: (user: User | null) => void;
+  setFocusObjective: (focus: FocusObjective) => void;
 
   // --- NEW Actions ---
   sendInteraction: (type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
@@ -79,6 +82,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session initializing." },
   currentQuizQuestion: null,
   isLessonComplete: false,
+  focusObjective: null,
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
@@ -90,6 +94,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
   setLoadingMessage: (message) => set({ loadingMessage: message }),
+  setFocusObjective: (focus) => set({ focusObjective: focus }),
 
   // --- REVISED Interaction Logic ---
   sendInteraction: async (type, data) => {
@@ -155,5 +160,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session reset." },
     currentQuizQuestion: null,
     isLessonComplete: false,
+    focusObjective: null,
   }),
 }));

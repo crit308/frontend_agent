@@ -270,4 +270,37 @@ export const getFolders = async (): Promise<FolderResponse[]> => {
         // Return empty array or throw error based on preference
         return [];
     }
-}; 
+};
+
+// --- Plan Generation (Plan-First) ---
+export const generatePlan = async (sessionId: string): Promise<import('./types').FocusObjective> => {
+  try {
+    console.log(`Generating plan for session ${sessionId}...`);
+    const response = await apiClient.post<import('./types').FocusObjective>(
+      `/sessions/${sessionId}/plan`
+    );
+    console.log('Plan generated:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error generating plan:', error);
+    throw error;
+  }
+};
+
+// +++ Front-end "interact" helper +++
+export async function sendInteraction(
+  sessionId: string,
+  type: 'start' | 'next' | 'answer' | 'summary' | 'previous',
+  data?: Record<string, any>
+): Promise<InteractionResponseData> {
+  try {
+    const response = await apiClient.post<InteractionResponseData>(
+      `/sessions/${sessionId}/interact`,
+      { type, data }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error sending interaction:', error);
+    throw error;
+  }
+} 

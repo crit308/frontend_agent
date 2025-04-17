@@ -221,10 +221,55 @@ export interface InteractionRequestData {
     data?: Record<string, any>; // e.g., { answer_index: 1 } or { question_text: "..." }
 }
 
-export type InteractionContentType = 'text' | 'explanation' | 'question' | 'quiz_question' | 'quiz_feedback_item' | 'error' | 'lesson_complete' | 'feedback';
-
+// --- Orchestrator response models ---
+export interface ExplanationResponse {
+  response_type: 'explanation';
+  text: string;
+  topic: string;
+  segment_index: number;
+  is_last_segment: boolean;
+  references?: string[];
+}
+export interface QuestionResponse {
+  response_type: 'question';
+  question: QuizQuestion;
+  topic: string;
+  context?: string;
+}
+export interface FeedbackResponse {
+  response_type: 'feedback';
+  feedback: QuizFeedbackItem;
+  topic: string;
+  correct_answer?: string;
+  explanation?: string;
+}
+export interface MessageResponse {
+  response_type: 'message';
+  text: string;
+  message_type?: string;
+}
+export interface ErrorResponse {
+  response_type: 'error';
+  message: string;
+  error_code?: string;
+  details?: Record<string, any>;
+}
+export type TutorInteractionResponse =
+  | ExplanationResponse
+  | QuestionResponse
+  | FeedbackResponse
+  | MessageResponse
+  | ErrorResponse;
 export interface InteractionResponseData {
-    content_type: InteractionContentType;
-    data: any; // Could be string (text), QuizQuestion, QuizFeedbackItem etc.
-    user_model_state: UserModelState; // Backend sends back the updated state
+  content_type: string; // e.g. 'explanation', 'question', etc
+  data: TutorInteractionResponse;  // the actual payload
+  user_model_state: UserModelState;
+}
+
+export interface FocusObjective {
+  topic: string;
+  learning_goal: string;
+  priority: number;
+  relevant_concepts: string[];
+  suggested_approach?: string;
 }
