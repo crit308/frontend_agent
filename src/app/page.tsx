@@ -17,6 +17,33 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import { FolderResponse } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
 
+// Memoized folder list component to avoid rerenders on auth events
+const FolderList = React.memo(({ folders, selectedFolderId, loadingState, onSelect, onDeselect }) => (
+  <div>
+    <Label htmlFor="folder-select">Select Folder</Label>
+    <div className="flex items-center gap-2 mt-1">
+      <select
+        id="folder-select"
+        value={selectedFolderId ?? ''}
+        onChange={(e) => onSelect(e.target.value || null)}
+        className="flex-grow p-2 border rounded-md bg-background disabled:opacity-50"
+        disabled={!folders || folders.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
+      >
+        <option value="" disabled>-- Select a folder --</option>
+        {folders.map(folder => (
+          <option key={folder.id} value={folder.id}>{folder.name}</option>
+        ))}
+      </select>
+      <Button variant="outline" size="icon" onClick={onDeselect} title="Deselect Folder" disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}>
+        <FolderIcon className="h-4 w-4" />
+      </Button>
+    </div>
+    {folders && folders.length === 0 && (
+      <p className="text-xs text-muted-foreground mt-1">No folders found. Create one below.</p>
+    )}
+  </div>
+));
+
 export default function HomePage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -185,29 +212,13 @@ export default function HomePage() {
               <CardDescription>Select a folder and upload documents to begin.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div>
-                <Label htmlFor="folder-select">Select Folder</Label>
-                <div className="flex items-center gap-2 mt-1">
-                  <select
-                    id="folder-select"
-                    value={selectedFolderId ?? ''}
-                    onChange={(e) => handleSelectFolder(e.target.value || null)}
-                    className="flex-grow p-2 border rounded-md bg-background disabled:opacity-50"
-                    disabled={!folders || folders.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
-                  >
-                    <option value="" disabled>-- Select a folder --</option>
-                    {folders && folders.map(folder => (
-                      <option key={folder.id} value={folder.id}>{folder.name}</option>
-                    ))}
-                  </select>
-                  <Button variant="outline" size="icon" onClick={() => handleSelectFolder(null)} title="Deselect Folder" disabled={!selectedFolderId || loadingState === 'loading' || loadingState === 'interacting'}>
-                    <FolderIcon className="h-4 w-4" />
-                  </Button>
-                </div>
-                {folders && folders.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">No folders found. Create one below.</p>
-                )}
-              </div>
+              <FolderList
+                folders={folders || []}
+                selectedFolderId={selectedFolderId}
+                loadingState={loadingState}
+                onSelect={handleSelectFolder}
+                onDeselect={() => handleSelectFolder(null)}
+              />
 
               <form onSubmit={handleCreateFolder} className="space-y-2">
                 <Label htmlFor="new-folder-name">Create New Folder</Label>

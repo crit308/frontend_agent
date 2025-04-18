@@ -37,6 +37,19 @@ apiClient.interceptors.request.use(async (config) => {
   return Promise.reject(error);
 });
 
+// Handle network errors (like CORS) and wrap them in BackendUnavailableError
+class BackendUnavailableError extends Error {}
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    if (!error.response) {
+      console.error('Network or CORS error detected:', error);
+      throw new BackendUnavailableError('Backend unavailable');
+    }
+    return Promise.reject(error);
+  }
+);
+
 // --- Session Management ---
 
 export const startSession = async (folderId: string): Promise<StartSessionResponse> => {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -90,13 +90,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // setLoading(false); // Corresponding setLoading(false) if spinner used
     };
 
-    const value = {
+    const value = useMemo(() => ({
         user,
         session,
         loading,
         signOut,
         // Add other auth methods here
-    };
+    }), [user, session, loading, signOut]);
 
     console.log("AuthProvider: Rendering. Loading state:", loading);
 
