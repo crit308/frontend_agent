@@ -30,7 +30,7 @@ export default function LearnPage() {
   const sendInteractionAction = useSessionStore((s) => s.sendInteraction);
   const { session } = useAuth();
   const jwt = session?.access_token || '';
-  const { send } = useTutorStream(sessionId || '', jwt);
+  const { send, latency, agentTurn } = useTutorStream(sessionId || '', jwt);
   const conceptMastery = useSessionStore((s) => s.conceptMastery);
 
   const [loadingPlan, setLoadingPlan] = useState(false);
@@ -56,62 +56,69 @@ export default function LearnPage() {
 
   // Layout: main content + sidebar
   return (
-    <div className="flex">
-      <div className="flex-1">
-        {loadingPlan ? (
-          <p>Loading lesson plan…</p>
-        ) : error ? (
-          <p className="text-red-600">Error: {error}</p>
-        ) : !focus ? (
-          <p>No focus yet.</p>
-        ) : !contentType ? (
-          <p>Preparing lesson…</p>
-        ) : (
-          (() => {
-            switch (contentType) {
-              case 'explanation':
-                return (
-                  <ExplanationView
-                    text={(contentData as ExplanationResponse).text}
-                    onNext={() => sendInteractionAction('next')}
-                  />
-                );
-              case 'question':
-                return (
-                  <QuestionView
-                    question={(contentData as QuestionResponse).question}
-                    onAnswer={(idx) => sendInteractionAction('answer', { answer_index: idx })}
-                  />
-                );
-              case 'feedback':
-                return (
-                  <FeedbackView
-                    feedback={(contentData as FeedbackResponse).feedback}
-                    onNext={() => sendInteractionAction('next')}
-                  />
-                );
-              case 'message':
-                return <MessageView text={(contentData as MessageResponse).text} />;
-              case 'error':
-                return <p className="text-red-600">Error: {(contentData as ErrorResponse).message}</p>;
-              default:
-                return <p>Unknown response type: {contentType}</p>;
-            }
-          })()
-        )}
+    <>
+      <div className="flex">
+        <div className="flex-1">
+          {loadingPlan ? (
+            <p>Loading lesson plan…</p>
+          ) : error ? (
+            <p className="text-red-600">Error: {error}</p>
+          ) : !focus ? (
+            <p>No focus yet.</p>
+          ) : !contentType ? (
+            <p>Preparing lesson…</p>
+          ) : (
+            (() => {
+              switch (contentType) {
+                case 'explanation':
+                  return (
+                    <ExplanationView
+                      text={(contentData as ExplanationResponse).text}
+                      onNext={() => sendInteractionAction('next')}
+                    />
+                  );
+                case 'question':
+                  return (
+                    <QuestionView
+                      question={(contentData as QuestionResponse).question}
+                      onAnswer={(idx) => sendInteractionAction('answer', { answer_index: idx })}
+                    />
+                  );
+                case 'feedback':
+                  return (
+                    <FeedbackView
+                      feedback={(contentData as FeedbackResponse).feedback}
+                      onNext={() => sendInteractionAction('next')}
+                    />
+                  );
+                case 'message':
+                  return <MessageView text={(contentData as MessageResponse).text} />;
+                case 'error':
+                  return <p className="text-red-600">Error: {(contentData as ErrorResponse).message}</p>;
+                default:
+                  return <p>Unknown response type: {contentType}</p>;
+              }
+            })()
+          )}
+        </div>
+        <aside className="w-64 p-4 border-l bg-gray-50">
+          <h3 className="font-semibold mb-2">Concept Mastery</h3>
+          {Object.entries(conceptMastery).map(([concept, m]) => (
+            <div key={concept} className="mb-4">
+              <span className="block text-sm text-gray-700">{concept}</span>
+              <MasteryBar value={m.mastery_level} />
+            </div>
+          ))}
+          <h3 className="font-semibold mt-6 mb-2">Pace</h3>
+          <PaceSlider onChange={(value: number) => send({ event_type: 'pace_change', value })} />
+        </aside>
       </div>
-      <aside className="w-64 p-4 border-l bg-gray-50">
-        <h3 className="font-semibold mb-2">Concept Mastery</h3>
-        {Object.entries(conceptMastery).map(([concept, m]) => (
-          <div key={concept} className="mb-4">
-            <span className="block text-sm text-gray-700">{concept}</span>
-            <MasteryBar value={m.mastery_level} />
-          </div>
-        ))}
-        <h3 className="font-semibold mt-6 mb-2">Pace</h3>
-        <PaceSlider onChange={(value: number) => send({ event_type: 'pace_change', value })} />
-      </aside>
-    </div>
+      {/* Debug Overlay */}
+      <div style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 1000, background: 'rgba(30,41,59,0.85)', color: '#fff', borderRadius: 8, padding: '10px 18px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+        <div>WS Latency: {latency !== null ? `${latency} ms` : '—'}</div>
+        <div>Agent Turn: {agentTurn || '—'}</div>
+      </div>
+    </>
   );
 }
 

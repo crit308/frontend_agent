@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { useTutorStream } from '../lib/useTutorStream';
+import { nanoid } from 'nanoid';
 
 interface Message {
-  id: number;
+  id: string;
   text: string;
   from: 'user' | 'tutor';
 }
@@ -10,7 +11,7 @@ interface Message {
 export default function TutorChat({ sessionId, jwt }: { sessionId: string; jwt: string }) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
-  const tutorMsgIdRef = useRef<number | null>(null);
+  const tutorMsgIdRef = useRef<string | null>(null);
 
   const { connected, send } = useTutorStream(sessionId, jwt, {
     onOpen: () => console.log('[TutorChat] WS connected'),
@@ -18,7 +19,7 @@ export default function TutorChat({ sessionId, jwt }: { sessionId: string; jwt: 
       setMessages(prev => {
         // if first delta, push new tutor message
         if (tutorMsgIdRef.current === null) {
-          const id = prev.length;
+          const id = nanoid();
           tutorMsgIdRef.current = id;
           return [...prev, { id, text: delta, from: 'tutor' }];
         }
@@ -36,7 +37,7 @@ export default function TutorChat({ sessionId, jwt }: { sessionId: string; jwt: 
   const handleSend = () => {
     if (!input.trim()) return;
     // push user message
-    setMessages(prev => [...prev, { id: prev.length, text: input, from: 'user' }]);
+    setMessages(prev => [...prev, { id: nanoid(), text: input, from: 'user' }]);
     // reset tutor message tracking
     tutorMsgIdRef.current = null;
     // send to WS
