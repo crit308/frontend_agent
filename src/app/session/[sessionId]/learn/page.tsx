@@ -18,6 +18,8 @@ import type {
   MessageResponse,
   ErrorResponse,
 } from '@/lib/types';
+import { useAuth } from '@/contexts/AuthContext';
+import { useTutorStream } from '../../../../../lib/useTutorStream';
 
 export default function LearnPage() {
   const { sessionId } = useParams() as { sessionId?: string };
@@ -26,6 +28,10 @@ export default function LearnPage() {
   const contentType = useSessionStore((s) => s.currentContentType);
   const contentData = useSessionStore((s) => s.currentInteractionContent);
   const sendInteractionAction = useSessionStore((s) => s.sendInteraction);
+  const { session } = useAuth();
+  const jwt = session?.access_token || '';
+  const { send } = useTutorStream(sessionId || '', jwt);
+  const conceptMastery = useSessionStore((s) => s.conceptMastery);
 
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,39 +54,94 @@ export default function LearnPage() {
     }
   }, [focus, contentType, sendInteractionAction]);
 
-  if (loadingPlan) return <p>Loading lesson plan…</p>;
-  if (error) return <p className="text-red-600">Error: {error}</p>;
-  if (!focus) return <p>No focus yet.</p>;
-  if (!contentType) return <p>Preparing lesson…</p>;
+  // Layout: main content + sidebar
+  return (
+    <div className="flex">
+      <div className="flex-1">
+        {loadingPlan ? (
+          <p>Loading lesson plan…</p>
+        ) : error ? (
+          <p className="text-red-600">Error: {error}</p>
+        ) : !focus ? (
+          <p>No focus yet.</p>
+        ) : !contentType ? (
+          <p>Preparing lesson…</p>
+        ) : (
+          (() => {
+            switch (contentType) {
+              case 'explanation':
+                return (
+                  <ExplanationView
+                    text={(contentData as ExplanationResponse).text}
+                    onNext={() => sendInteractionAction('next')}
+                  />
+                );
+              case 'question':
+                return (
+                  <QuestionView
+                    question={(contentData as QuestionResponse).question}
+                    onAnswer={(idx) => sendInteractionAction('answer', { answer_index: idx })}
+                  />
+                );
+              case 'feedback':
+                return (
+                  <FeedbackView
+                    feedback={(contentData as FeedbackResponse).feedback}
+                    onNext={() => sendInteractionAction('next')}
+                  />
+                );
+              case 'message':
+                return <MessageView text={(contentData as MessageResponse).text} />;
+              case 'error':
+                return <p className="text-red-600">Error: {(contentData as ErrorResponse).message}</p>;
+              default:
+                return <p>Unknown response type: {contentType}</p>;
+            }
+          })()
+        )}
+      </div>
+      <aside className="w-64 p-4 border-l bg-gray-50">
+        <h3 className="font-semibold mb-2">Concept Mastery</h3>
+        {Object.entries(conceptMastery).map(([concept, m]) => (
+          <div key={concept} className="mb-4">
+            <span className="block text-sm text-gray-700">{concept}</span>
+            <MasteryBar value={m.mastery_level} />
+          </div>
+        ))}
+        <h3 className="font-semibold mt-6 mb-2">Pace</h3>
+        <PaceSlider onChange={(value: number) => send({ event_type: 'pace_change', value })} />
+      </aside>
+    </div>
+  );
+}
 
-  // 3) Render based on response type
-  switch (contentType) {
-    case 'explanation':
-      return (
-        <ExplanationView
-          text={(contentData as ExplanationResponse).text}
-          onNext={() => sendInteractionAction('next')}
-        />
-      );
-    case 'question':
-      return (
-        <QuestionView
-          question={(contentData as QuestionResponse).question}
-          onAnswer={(idx) => sendInteractionAction('answer', { answer_index: idx })}
-        />
-      );
-    case 'feedback':
-      return (
-        <FeedbackView
-          feedback={(contentData as FeedbackResponse).feedback}
-          onNext={() => sendInteractionAction('next')}
-        />
-      );
-    case 'message':
-      return <MessageView text={(contentData as MessageResponse).text} />;
-    case 'error':
-      return <p className="text-red-600">Error: {(contentData as ErrorResponse).message}</p>;
-    default:
-      return <p>Unknown response type: {contentType}</p>;
-  }
+// Stub MasteryBar component
+function MasteryBar({ value }: { value: number }) {
+  const percent = Math.min(Math.max(value * 100, 0), 100);
+  return (
+    <div className="w-full bg-gray-200 h-2 rounded">
+      <div className="bg-green-500 h-2 rounded" style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
+
+// Stub PaceSlider component
+function PaceSlider({ onChange }: { onChange: (value: number) => void }) {
+  const [value, setValue] = useState<number>(1);
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = Number(e.target.value);
+    setValue(v);
+    onChange(v);
+  };
+  return (
+    <input
+      type="range"
+      min="0.5"
+      max="2"
+      step="0.1"
+      value={value}
+      onChange={handleChange}
+      className="w-full"
+    />
+  );
 } 

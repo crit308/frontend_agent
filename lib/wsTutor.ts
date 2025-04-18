@@ -4,10 +4,10 @@ export function connectTutorStream(
   sessionId: string,
   jwt: string
 ): WebSocket {
-  const url = new URL(
-    `/api/v1/ws/session/${sessionId}`,
-    process.env.NEXT_PUBLIC_API_WS_URL
-  );
+  const base =
+    process.env.NEXT_PUBLIC_API_WS_URL ||
+    `${window.location.protocol.replace('http', 'ws')}//${window.location.host}`;
+  const url = new URL(`/api/v1/ws/session/${sessionId}`, base);
   url.searchParams.set('token', jwt);
 
   const ws = new WebSocket(url.toString());
@@ -33,21 +33,45 @@ export function connectTutorStream(
   return ws;
 }
 
+// ===== Simple Event Emitter for Tutor Stream =====
+type EventCallback = (payload: any) => void;
+const listeners: Record<string, EventCallback[]> = {};
+
+export function onTutorEvent(eventType: string, cb: EventCallback) {
+  if (!listeners[eventType]) listeners[eventType] = [];
+  listeners[eventType].push(cb);
+}
+
+export function offTutorEvent(eventType: string, cb: EventCallback) {
+  if (!listeners[eventType]) return;
+  listeners[eventType] = listeners[eventType].filter(fn => fn !== cb);
+}
+
+function emit(eventType: string, payload: any) {
+  (listeners[eventType] || []).forEach(fn => fn(payload));
+}
+// ===== End Emitter Setup =====
+
 function handleStreamEvent(event: StreamEvent) {
   switch (event.type) {
     case 'raw_response_event':
-      // e.g. event.data.delta (next token)
+      emit('raw_response', event.data);
       break;
     case 'run_item_stream_event':
-      // e.g. event.item.type === 'message_output_item'
+      if (event.item.type === 'question_output_item') emit('question', event.item);
+      else if (event.item.type === 'feedback_output_item') emit('feedback', event.item);
       break;
     case 'agent_updated_stream_event':
-      // handle handoff
+      emit('agent_updated', event);
+      break;
+    case 'mastery_update':
+      emit('mastery', event);
       break;
     case 'error':
-      console.error('[TutorWS] remote error', event.detail);
+      emit('error', event.detail);
       break;
     default:
-      console.warn('[TutorWS] unhandled event', event);
+      emit('unhandled', event);
+      break;
   }
 } 

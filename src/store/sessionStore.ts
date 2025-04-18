@@ -42,6 +42,8 @@ export interface SessionState {
   currentQuizQuestion: QuizQuestion | null;
   isLessonComplete: boolean;
   focusObjective: FocusObjective | null;
+  // Mastery tracking from live events
+  conceptMastery: Record<string, UserConceptMastery>;
 
   // Actions
   setSessionId: (sessionId: string) => void;
@@ -55,6 +57,8 @@ export interface SessionState {
   setLoadingMessage: (message: string) => void;
   setUser: (user: User | null) => void;
   setFocusObjective: (focus: FocusObjective) => void;
+  // Mastery update action
+  updateConceptMastery: (concept: string, mastery: UserConceptMastery) => void;
 
   // --- NEW Actions ---
   sendInteraction: (type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
@@ -83,6 +87,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   currentQuizQuestion: null,
   isLessonComplete: false,
   focusObjective: null,
+  conceptMastery: {},
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
@@ -95,6 +100,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
   setLoadingMessage: (message) => set({ loadingMessage: message }),
   setFocusObjective: (focus) => set({ focusObjective: focus }),
+  // Mastery event reducer
+  updateConceptMastery: (concept, mastery) => set(state => ({
+    conceptMastery: { ...state.conceptMastery, [concept]: mastery }
+  })),
 
   // --- REVISED Interaction Logic ---
   sendInteraction: async (type, data) => {
@@ -161,5 +170,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     currentQuizQuestion: null,
     isLessonComplete: false,
     focusObjective: null,
+    conceptMastery: {},
   }),
 }));

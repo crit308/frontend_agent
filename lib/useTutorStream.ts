@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { connectTutorStream, StreamEvent } from './wsTutor';
+import { connectTutorStream, StreamEvent, onTutorEvent, offTutorEvent } from './wsTutor';
 
 export interface TutorStreamHandlers {
   onOpen?: () => void;
@@ -67,11 +67,11 @@ export function useTutorStream(
 
   const send = (data: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'next', data }));
+      wsRef.current.send(JSON.stringify({ event_type: 'next', data }));
     } else {
       console.warn('[TutorWS] send attempted before open');
     }
   };
 
-  return { connected, send };
+  return { connected, send, on: onTutorEvent, off: offTutorEvent };
 } 
