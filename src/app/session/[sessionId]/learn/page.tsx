@@ -36,7 +36,11 @@ export default function LearnPage() {
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 1) Load focus plan once
+  // --- Debug Log ---
+  console.log('[LearnPage] Rendering. contentType:', contentType, ', contentData:', contentData);
+
+  // 1) Load focus plan once - COMMENTED OUT: Assuming plan is now generated via WS 'start'
+  /*
   useEffect(() => {
     if (sessionId && !focus) {
       setLoadingPlan(true);
@@ -46,13 +50,16 @@ export default function LearnPage() {
         .finally(() => setLoadingPlan(false));
     }
   }, [sessionId, focus, setFocus]);
+  */
 
-  // 2) Kick-off first interaction
+  // 2) Kick-off first interaction - COMMENTED OUT: 'start' message now sent by useTutorStream hook onOpen
+  /*
   useEffect(() => {
     if (focus && !contentType) {
       sendInteractionAction('start').catch((err) => setError(err.message || 'Start failed'));
     }
   }, [focus, contentType, sendInteractionAction]);
+  */
 
   // Layout: main content + sidebar
   return (
@@ -63,10 +70,10 @@ export default function LearnPage() {
             <p>Loading lesson plan…</p>
           ) : error ? (
             <p className="text-red-600">Error: {error}</p>
-          ) : !focus ? (
+          ) : /* !focus ? ( // Focus is no longer loaded initially here
             <p>No focus yet.</p>
-          ) : !contentType ? (
-            <p>Preparing lesson…</p>
+          ) : */ !contentType ? (
+            <p>Connecting to tutor and preparing lesson…</p> // Updated message
           ) : (
             (() => {
               switch (contentType) {
@@ -110,7 +117,7 @@ export default function LearnPage() {
             </div>
           ))}
           <h3 className="font-semibold mt-6 mb-2">Pace</h3>
-          <PaceSlider onChange={(value: number) => send({ event_type: 'pace_change', value })} />
+          <PaceSlider onChange={(value: number) => send({ type: 'pace_change', data: { value } })} />
         </aside>
       </div>
       {/* Debug Overlay */}

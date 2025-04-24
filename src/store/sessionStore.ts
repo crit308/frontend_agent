@@ -35,6 +35,9 @@ export interface SessionState {
   sessionAnalysis: SessionAnalysis | null;
   isSubmittingQuiz: boolean;
 
+  // WebSocket state
+  webSocketSendFunction: ((payload: any) => void) | null;
+
   // --- NEW State for Interaction Model ---
   currentInteractionContent: TutorInteractionResponse | null;
   currentContentType: string | null;
@@ -60,6 +63,10 @@ export interface SessionState {
   // Mastery update action
   updateConceptMastery: (concept: string, mastery: UserConceptMastery) => void;
 
+  // WebSocket Actions
+  registerWebSocketSend: (sendFn: (payload: any) => void) => void;
+  deregisterWebSocketSend: () => void;
+
   // --- NEW Actions ---
   sendInteraction: (type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
 }
@@ -79,6 +86,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   loadingMessage: '',
   user: null,
+
+  // WebSocket state
+  webSocketSendFunction: null,
 
   // --- NEW Initial State ---
   currentInteractionContent: null,
@@ -105,47 +115,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     conceptMastery: { ...state.conceptMastery, [concept]: mastery }
   })),
 
+  // WebSocket Action Implementations
+  registerWebSocketSend: (sendFn) => set({ webSocketSendFunction: sendFn }),
+  deregisterWebSocketSend: () => set({ webSocketSendFunction: null }),
+
   // --- REVISED Interaction Logic ---
   sendInteraction: async (type, data) => {
-      const { sessionId } = get();
+      const { sessionId, webSocketSendFunction } = get();
       if (!sessionId) {
           set({ error: "No active session.", loadingState: 'error' });
           return;
       }
+      if (!webSocketSendFunction) {
+           set({ error: "WebSocket not connected or ready.", loadingState: 'error' });
+           console.warn("sendInteraction: WebSocket send function not registered.");
+           return;
+      }
 
-      set({ loadingState: 'interacting', loadingMessage: 'Thinking...', error: null });
+      set({ loadingState: 'interacting', loadingMessage: 'Sending...', error: null });
 
       try {
-          const response = await api.interactWithTutor(sessionId, { type, data });
-
-          let nextQuestion: QuizQuestion | null = null;
-          if (response.content_type === 'question' && response.data?.response_type === 'question') {
-              const questionResponse = response.data as any;
-              if (questionResponse.question) {
-                nextQuestion = questionResponse.question as QuizQuestion;
-              }
-          }
-
-          // Add Logging Before Setting State
-          console.log("Store: Updating state with:", {
-              contentType: response.content_type,
-              contentData: response.data,
-              userModel: response.user_model_state,
-              nextQ: nextQuestion
-          });
-
-          set({
-              currentContentType: response.content_type,
-              currentInteractionContent: response.data,
-              userModelState: response.user_model_state, 
-              currentQuizQuestion: nextQuestion,
-              isLessonComplete: response.content_type === 'lesson_complete',
-              loadingState: 'success',
-              loadingMessage: '',
-          });
+          const payload = { type: type, data: data || {} };
+          console.log("Store: Calling registered WebSocket send function with payload:", payload);
+          webSocketSendFunction(payload);
 
       } catch (err: any) {
-          const errorMessage = err.response?.data?.detail || err.message || 'Interaction failed.';
+          const errorMessage = err.message || 'Failed to send interaction via WebSocket.';
+          console.error("Store: Error sending interaction via WebSocket:", err);
           set({ error: errorMessage, loadingState: 'error', loadingMessage: '' });
       }
   },
@@ -171,5 +167,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     isLessonComplete: false,
     focusObjective: null,
     conceptMastery: {},
+    webSocketSendFunction: null,
   }),
 }));
