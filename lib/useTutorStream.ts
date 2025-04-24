@@ -24,6 +24,7 @@ export interface TutorStreamHandlers {
   onRunItem?: (item: any) => void;
   onAgentUpdated?: (event: any) => void;
   onUnhandled?: (event: any) => void;
+  onInteractionResponse?: (response: any) => void;
 }
 
 export function useTutorStream(
@@ -174,6 +175,10 @@ export function useTutorStream(
          mainPayload = parsedData.data;
          userModelState = parsedData.user_model_state;
          console.log(`[WebSocket] Handling InteractionResponseData: ${parsedData.content_type}`);
+         // --- NEW: Call the structured response handler ---
+         if (handlers.onInteractionResponse) {
+             handlers.onInteractionResponse(parsedData); // Pass the whole wrapper
+         }
       }
       // Check if it's a direct payload (like the error might be)
       else if (parsedData && parsedData.response_type) {
