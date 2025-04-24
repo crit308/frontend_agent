@@ -177,7 +177,6 @@ export function useTutorStream(
           case 'error':
             console.log('[WebSocket] Updating store: currentContentType =', parsedData.response_type, ', currentInteractionContent =', parsedData);
             useSessionStore.setState({
-              currentContentType: parsedData.response_type,
               currentInteractionContent: parsedData, // Store the whole data object
               // Assuming user_model_state might come with these responses too?
               // If not, remove this or make it conditional
@@ -212,6 +211,24 @@ export function useTutorStream(
           // case 'raw_response_event':
           //   handlers.onRawResponse?.(evt.data);
           //   break;
+          case 'run_item_stream_event':
+            if (evt.item?.type === 'mastery_notification') {
+              toast({
+                title: `✅ Mastered ${evt.item.topic}`,
+                description: `p = ${evt.item.prob}`,
+                duration: 6000
+              });
+            }
+            // Potentially call handlers.onRunItem if defined?
+            // handlers.onRunItem?.(evt.item);
+            break;
+          case 'cost_summary':
+            toast({
+              title: `💸 ${evt.cents}¢`,
+              description: 'LLM cost for this turn',
+              duration: 4000
+            });
+            break;
           case 'error': // Handle top-level error type if distinct from response_type error
             handlers.onError?.(evt.detail);
             break;

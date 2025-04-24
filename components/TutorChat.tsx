@@ -41,7 +41,7 @@ export default function TutorChat({ sessionId, jwt }: { sessionId: string; jwt: 
     // reset tutor message tracking
     tutorMsgIdRef.current = null;
     // send to WS
-    send({ question: input });
+    send({ type: 'user_message', data: { text: input } });
     setInput('');
   };
 

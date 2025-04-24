@@ -40,13 +40,10 @@ export interface SessionState {
 
   // --- NEW State for Interaction Model ---
   currentInteractionContent: TutorInteractionResponse | null;
-  currentContentType: string | null;
   userModelState: UserModelState;
   currentQuizQuestion: QuizQuestion | null;
   isLessonComplete: boolean;
   focusObjective: FocusObjective | null;
-  // Mastery tracking from live events
-  conceptMastery: Record<string, UserConceptMastery>;
 
   // Actions
   setSessionId: (sessionId: string) => void;
@@ -60,15 +57,13 @@ export interface SessionState {
   setLoadingMessage: (message: string) => void;
   setUser: (user: User | null) => void;
   setFocusObjective: (focus: FocusObjective) => void;
-  // Mastery update action
-  updateConceptMastery: (concept: string, mastery: UserConceptMastery) => void;
 
   // WebSocket Actions
   registerWebSocketSend: (sendFn: (payload: any) => void) => void;
   deregisterWebSocketSend: () => void;
 
   // --- NEW Actions ---
-  sendInteraction: (type: 'start' | 'next' | 'answer' | 'question' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
+  sendInteraction: (type: 'start' | 'next' | 'answer' | 'user_message' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -92,12 +87,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // --- NEW Initial State ---
   currentInteractionContent: null,
-  currentContentType: null,
   userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session initializing." },
   currentQuizQuestion: null,
   isLessonComplete: false,
   focusObjective: null,
-  conceptMastery: {},
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
@@ -110,10 +103,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
   setLoadingMessage: (message) => set({ loadingMessage: message }),
   setFocusObjective: (focus) => set({ focusObjective: focus }),
-  // Mastery event reducer
-  updateConceptMastery: (concept, mastery) => set(state => ({
-    conceptMastery: { ...state.conceptMastery, [concept]: mastery }
-  })),
 
   // WebSocket Action Implementations
   registerWebSocketSend: (sendFn) => set({ webSocketSendFunction: sendFn }),
@@ -135,7 +124,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ loadingState: 'interacting', loadingMessage: 'Sending...', error: null });
 
       try {
-          const payload = { type: type, data: data || {} };
+          // Construct the payload based on type
+          let payload;
+          if (type === 'user_message') {
+              // Ensure data exists and has a 'text' property
+              const text = data?.text;
+              if (typeof text !== 'string') {
+                  console.error("Store: 'user_message' type requires a 'text' field in data.");
+                  set({ error: "Invalid message format.", loadingState: 'error', loadingMessage: '' });
+                  return;
+              }
+              payload = { type: type, data: { text: text } };
+          } else {
+              payload = { type: type, data: data || {} };
+          }
+          
           console.log("Store: Calling registered WebSocket send function with payload:", payload);
           webSocketSendFunction(payload);
 
@@ -161,12 +164,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     loadingMessage: '',
     currentInteractionContent: null,
     user: null,
-    currentContentType: null,
     userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session reset." },
     currentQuizQuestion: null,
     isLessonComplete: false,
     focusObjective: null,
-    conceptMastery: {},
     webSocketSendFunction: null,
   }),
 }));
