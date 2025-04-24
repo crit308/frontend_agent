@@ -160,85 +160,67 @@ export function useTutorStream(
       try {
         parsedData = JSON.parse(event.data);
         console.log('[WebSocket] Parsed message:', parsedData);
-        // No need to check parsed.data here, check specific fields below
       } catch (e) {
         console.error('[WebSocket] message parse error', e);
         return;
       }
 
-      // --- Check based on response_type --- 
-      if (parsedData && parsedData.response_type) {
-        console.log(`[WebSocket] Handling response_type: ${parsedData.response_type}`);
-        switch (parsedData.response_type) {
-          case 'explanation':
-          case 'question':
-          case 'feedback':
-          case 'message':
-          case 'error':
-            console.log('[WebSocket] Updating store: currentContentType =', parsedData.response_type, ', currentInteractionContent =', parsedData);
-            useSessionStore.setState({
-              currentInteractionContent: parsedData, // Store the whole data object
-              // Assuming user_model_state might come with these responses too?
-              // If not, remove this or make it conditional
-              // userModelState: parsedData.user_model_state || useSessionStore.getState().userModelState 
-            });
-            console.log('[WebSocket] Store updated for interaction content.');
-            break;
-          // Add other response_type cases if needed
-          default:
-            console.warn('[WebSocket] Unhandled response_type:', parsedData.response_type, parsedData);
-            handlers.onUnhandled?.(parsedData); // Maybe use onUnhandled for these?
-            break;
-        }
+      // --- REVISED: Handle InteractionResponseData OR Direct Payloads ---
+      let mainPayload = null;
+      let userModelState = null;
+
+      // Check if it's the full InteractionResponseData wrapper
+      if (parsedData && parsedData.content_type && parsedData.data && parsedData.user_model_state) {
+         mainPayload = parsedData.data;
+         userModelState = parsedData.user_model_state;
+         console.log(`[WebSocket] Handling InteractionResponseData: ${parsedData.content_type}`);
       }
-      // --- Handle other message types based on top-level 'type' property if they exist ---
-      else if (parsedData && parsedData.type) {
-        const evt = parsedData; // Treat as StreamEvent if it has 'type'
+      // Check if it's a direct payload (like the error might be)
+      else if (parsedData && parsedData.response_type) {
+          mainPayload = parsedData; // Assume it's the main payload directly
+          // User model state might not be present in direct error messages
+          console.log(`[WebSocket] Handling direct response_type: ${parsedData.response_type}`);
+      }
+
+      // If we identified a main payload, update the store
+      if (mainPayload) {
+           const newState: Partial<import('@/store/sessionStore').SessionState> = {
+                currentInteractionContent: mainPayload,
+                loadingState: 'idle',
+                loadingMessage: '',
+                error: mainPayload.response_type === 'error' ? mainPayload.message : null
+           };
+           if (userModelState) {
+               newState.userModelState = userModelState;
+           }
+           useSessionStore.setState(newState);
+           console.log('[WebSocket] Store updated with main payload.');
+      }
+      // --- Handle Custom Raw Deltas ---
+      else if (parsedData && parsedData.type === 'raw_delta') {
+         console.debug('[WebSocket] Handling raw_delta');
+         handlers.onRawResponse?.(parsedData.delta);
+      // --- Handle Other Top-Level Types (Ping, Ack, etc.) ---
+      } else if (parsedData && parsedData.type) {
+        const evt = parsedData;
         switch (evt.type) {
           case 'pong':
-            if (pingTimestampRef.current) {
-              setLatency(Date.now() - pingTimestampRef.current);
-              pingTimestampRef.current = null;
-            }
+             if (pingTimestampRef.current) {
+                 setLatency(Date.now() - pingTimestampRef.current);
+                 pingTimestampRef.current = null;
+             }
+             break;
+          case 'ack':
+            console.debug('[WebSocket] Received ack:', evt.detail);
             break;
-          case 'agent_updated_stream_event':
-            setAgentTurn(evt.agent_turn || '');
-            handlers.onAgentUpdated?.(evt);
-            break;
-          // Potentially handle 'raw_response_event' or 'run_item_stream_event' here
-          // if the backend might send those types as well.
-          // Example:
-          // case 'raw_response_event':
-          //   handlers.onRawResponse?.(evt.data);
-          //   break;
-          case 'run_item_stream_event':
-            if (evt.item?.type === 'mastery_notification') {
-              toast({
-                title: `✅ Mastered ${evt.item.topic}`,
-                description: `p = ${evt.item.prob}`,
-                duration: 6000
-              });
-            }
-            // Potentially call handlers.onRunItem if defined?
-            // handlers.onRunItem?.(evt.item);
-            break;
-          case 'cost_summary':
-            toast({
-              title: `💸 ${evt.cents}¢`,
-              description: 'LLM cost for this turn',
-              duration: 4000
-            });
-            break;
-          case 'error': // Handle top-level error type if distinct from response_type error
-            handlers.onError?.(evt.detail);
-            break;
+          // Add cases for AgentUpdatedStreamEvent, etc. if needed
           default:
             console.warn('[WebSocket] Unhandled top-level type:', evt.type, evt);
             handlers.onUnhandled?.(evt);
             break;
         }
       } else {
-        console.error('[WebSocket] Received message without known type structure:', parsedData);
+        console.error('[WebSocket] Received message without known structure:', parsedData);
       }
     };
 
