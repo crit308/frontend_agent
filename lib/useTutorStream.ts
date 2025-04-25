@@ -10,7 +10,7 @@ function getAnalysisAction(): ToastActionElement {
     ToastAction as React.ElementType,
     {
       altText: 'Go to analysis',
-      onClick: () => { window.location.href = '/analysis'; }
+      onClick: () => { window.location.href = `/session/${useSessionStore.getState().sessionId}/analysis`; }
     },
     'Go to analysis'
   ) as ToastActionElement;
@@ -34,220 +34,150 @@ export function useTutorStream(
 ) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
-  const hasOpenedRef = useRef(false);
-  const reconnectCountRef = useRef(0);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const { toast } = useToast();
-
-  // Debug overlay state
-  const [latency, setLatency] = useState<number | null>(null);
-  const [agentTurn, setAgentTurn] = useState<string | null>(null);
-  const pingTimestampRef = useRef<number | null>(null);
+  const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const hasAttemptedConnectionRef = useRef(false);
+  const isComponentMountedRef = useRef(true);
+  const { toast } = useToast();
+  const [latency, setLatency] = useState<number | null>(null);
+  const pingTimestampRef = useRef<number | null>(null);
 
-  // Get store actions (safe outside useEffect as actions don't change)
-  const { registerWebSocketSend, deregisterWebSocketSend, setError, setLoading } = useSessionStore.getState();
+  // --- Use stable references for store actions ---
+  const registerWebSocketSend = useSessionStore.getState().registerWebSocketSend;
+  const deregisterWebSocketSend = useSessionStore.getState().deregisterWebSocketSend;
+  const setSessionState = useSessionStore.setState;
+  const getState = useSessionStore.getState;
 
-  // --- Define the send function using useCallback for stability ---
+  // Stable send function
   const sendMessage = useCallback((payload: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       const messageString = JSON.stringify(payload);
       console.log('[TutorWS Hook] Sending message:', messageString);
-      wsRef.current.send(messageString);
+      try { wsRef.current.send(messageString); } catch (e) { console.error("[WebSocket] Error sending message:", e); handlers.onError?.(e); }
     } else {
       console.warn('[TutorWS Hook] send attempted when WS not open');
-      setError("WebSocket disconnected. Cannot send message.");
-      setLoading('error');
+      handlers.onError?.(new Error("WebSocket disconnected. Cannot send message."));
     }
-  }, [setError, setLoading]);
+  }, [handlers]);
 
-  const hasSentStartRef = useRef(false);
-
-  useEffect(() => {
-    // Only run if sessionId and jwt are available
-    if (!sessionId || !jwt) {
-      console.log('[WebSocket] Missing sessionId or token, not connecting.');
+  // --- Connection Logic wrapped in useCallback ---
+  const connect = useCallback(() => {
+    if (!isComponentMountedRef.current) {
+      console.log('[WebSocket] connect called but component is unmounted. Aborting.');
       return;
     }
-
-    // Prevent multiple connections
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('[WebSocket] Connection already open.');
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      console.log('[WebSocket] Connect called but already open/connecting.');
       return;
     }
-    if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
-      console.log('[WebSocket] Connection already in progress.');
-      return;
+    // Clean up previous socket instance rigorously
+    if (wsRef.current) {
+      console.log("[WebSocket] Cleaning up previous socket before new connection.");
+      wsRef.current.onclose = null; wsRef.current.onerror = null; wsRef.current.onmessage = null; wsRef.current.onopen = null;
+      try { if (wsRef.current.readyState !== WebSocket.CLOSED) wsRef.current.close(1000, "Starting new connection"); } catch (e) { console.warn("Error closing previous socket:", e); }
+      wsRef.current = null;
     }
-
-    console.log(`[WebSocket] Attempting to connect for session: ${sessionId}...`);
-    // Use your connectTutorStream function to get the correct URL
+    console.log(`[WebSocket] Attempting connection... (Attempt: ${reconnectAttemptsRef.current + 1})`);
+    hasAttemptedConnectionRef.current = true;
     const ws = connectTutorStream(sessionId, jwt);
     wsRef.current = ws;
-    hasSentStartRef.current = false;
-
     ws.onopen = () => {
+      if (wsRef.current !== ws) { console.log("[WebSocket] Ignoring open event from stale connection."); ws.close(1000, "Stale connection"); return; }
       console.log(`[WebSocket] Connection OPENED for session: ${sessionId}`);
+      reconnectAttemptsRef.current = 0;
       setConnected(true);
-      reconnectCountRef.current = 0;
-      hasOpenedRef.current = true;
       handlers.onOpen?.();
-      // Start ping interval
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = setInterval(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          pingTimestampRef.current = Date.now();
-          wsRef.current.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 5000);
-      // Register the send function with the store
       console.log('[WebSocket] Registering send function with store.');
       registerWebSocketSend(sendMessage);
-      if (!hasSentStartRef.current) {
-        console.log("[WebSocket] Sending 'start' message...");
-        try {
-          ws.send(JSON.stringify({ type: 'start', data: {} }));
-          console.log("[WebSocket] 'start' message sent successfully.");
-          hasSentStartRef.current = true;
-        } catch (e) {
-          console.error("[WebSocket] Error sending 'start' message:", e);
-          hasSentStartRef.current = false;
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = setInterval(() => {
+        if (wsRef.current === ws && ws.readyState === WebSocket.OPEN) {
+          pingTimestampRef.current = Date.now();
+          try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) { console.error("[WebSocket] Error sending ping:", e); }
+        } else if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
         }
-      } else {
-        console.log("[WebSocket] 'start' message already sent for this connection.");
-      }
+      }, 5000);
+      setTimeout(() => {
+        if (wsRef.current === ws && ws.readyState === WebSocket.OPEN) {
+          console.log("[WebSocket] Sending initial 'user_message' (start)...");
+          try { sendMessage({ type: 'user_message', data: { text: 'Start the lesson.' } }); console.log("[WebSocket] Initial 'user_message' sent successfully."); }
+          catch (e) { console.error("[WebSocket] Error sending initial 'user_message':", e); handlers.onError?.(e); }
+        }
+      }, 100);
     };
-
     ws.onerror = (error) => {
-      console.error(`[WebSocket] Error for session ${sessionId}:`, error);
-      wsRef.current = null;
+      console.error(`[WebSocket] Error on socket for session ${sessionId}:`, error);
+      if (wsRef.current === ws) { handlers.onError?.(error); }
+      else { console.log("[WebSocket] Ignoring error from stale connection attempt."); }
     };
-
     ws.onclose = (event) => {
+      if (wsRef.current !== ws) { console.log(`[WebSocket] Ignoring close event from STALE socket instance for session ${sessionId}.`); return; }
       console.log(`[WebSocket] Connection CLOSED for session ${sessionId}: Code=${event.code}, Reason='${event.reason}'`);
-      setConnected(false);
       wsRef.current = null;
-      hasSentStartRef.current = false;
+      setConnected(false);
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current); pingIntervalRef.current = null;
       handlers.onClose?.(event);
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      // Deregister send function
-      console.log('[WebSocket] Deregistering send function (onclose).');
-      deregisterWebSocketSend();
-      if (!hasOpenedRef.current) {
-        toast({ title: 'Tutor unavailable', description: 'Tutor unavailable – check logs.', variant: 'destructive' });
-        return;
+      if (!isComponentMountedRef.current) { console.log('[WebSocket] Connection closed & component unmounted. Not reconnecting.'); return; }
+      if (event.code !== 1000 && event.code !== 1011) {
+        reconnectAttemptsRef.current += 1;
+        const delay = Math.min(15000, 1000 * 2 ** reconnectAttemptsRef.current);
+        console.log(`[WebSocket] Scheduling reconnect after ${delay}ms... (Attempt ${reconnectAttemptsRef.current})`);
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = setTimeout(() => {
+          if (isComponentMountedRef.current) { connect(); }
+          else { console.log('[WebSocket] Reconnect timer fired, but component unmounted.'); }
+        }, delay);
       }
-      if (event.code === 1011) {
-        toast({
-          title: 'Tutor plan failed',
-          description: 'The tutor could not generate a plan.',
-          variant: 'destructive',
-          duration: 10000,
-          action: getAnalysisAction(),
-        });
-        return;
-      }
-      reconnectCountRef.current += 1;
-      const delay = Math.min(30000, 1000 * 2 ** reconnectCountRef.current);
-      timeoutRef.current = setTimeout(() => {
-        console.log(`[WebSocket] Reconnecting after ${delay}ms...`);
-        // Reconnect logic will be handled by effect re-run
-      }, delay);
+      else if (event.code === 1011) { toast({ title: 'Tutor Error', description: 'The tutor encountered an internal issue.', variant: 'destructive', duration: 10000 }); }
+      else if (hasAttemptedConnectionRef.current && !connected && event.code !== 1000) { toast({ title: 'Tutor unavailable', description: 'Initial connection failed.', variant: 'destructive' }); }
     };
-
     ws.onmessage = (event) => {
-      console.log(`[WebSocket] Message received for ${sessionId}:`, event.data);
-      let parsedData;
-      try {
-        parsedData = JSON.parse(event.data);
-        console.log('[WebSocket] Parsed message:', parsedData);
-      } catch (e) {
-        console.error('[WebSocket] message parse error', e);
-        return;
-      }
-
-      // --- REVISED: Handle InteractionResponseData OR Direct Payloads ---
-      let mainPayload = null;
-      let userModelState = null;
-
-      // Check if it's the full InteractionResponseData wrapper
-      if (parsedData && parsedData.content_type && parsedData.data && parsedData.user_model_state) {
-         mainPayload = parsedData.data;
-         userModelState = parsedData.user_model_state;
-         console.log(`[WebSocket] Handling InteractionResponseData: ${parsedData.content_type}`);
-         // --- NEW: Call the structured response handler ---
-         if (handlers.onInteractionResponse) {
-             handlers.onInteractionResponse(parsedData); // Pass the whole wrapper
-         }
-      }
-      // Check if it's a direct payload (like the error might be)
-      else if (parsedData && parsedData.response_type) {
-          mainPayload = parsedData; // Assume it's the main payload directly
-          // User model state might not be present in direct error messages
-          console.log(`[WebSocket] Handling direct response_type: ${parsedData.response_type}`);
-      }
-
-      // If we identified a main payload, update the store
-      if (mainPayload) {
-           const newState: Partial<import('@/store/sessionStore').SessionState> = {
-                currentInteractionContent: mainPayload,
-                loadingState: 'idle',
-                loadingMessage: '',
-                error: mainPayload.response_type === 'error' ? mainPayload.message : null
-           };
-           if (userModelState) {
-               newState.userModelState = userModelState;
-           }
-           useSessionStore.setState(newState);
-           console.log('[WebSocket] Store updated with main payload.');
-      }
-      // --- Handle Custom Raw Deltas ---
-      else if (parsedData && parsedData.type === 'raw_delta') {
-         console.debug('[WebSocket] Handling raw_delta');
-         handlers.onRawResponse?.(parsedData.delta);
-      // --- Handle Other Top-Level Types (Ping, Ack, etc.) ---
-      } else if (parsedData && parsedData.type) {
-        const evt = parsedData;
-        switch (evt.type) {
-          case 'pong':
-             if (pingTimestampRef.current) {
-                 setLatency(Date.now() - pingTimestampRef.current);
-                 pingTimestampRef.current = null;
-             }
-             break;
-          case 'ack':
-            console.debug('[WebSocket] Received ack:', evt.detail);
-            break;
-          // Add cases for AgentUpdatedStreamEvent, etc. if needed
-          default:
-            console.warn('[WebSocket] Unhandled top-level type:', evt.type, evt);
-            handlers.onUnhandled?.(evt);
-            break;
-        }
-      } else {
-        console.error('[WebSocket] Received message without known structure:', parsedData);
-      }
+      if (wsRef.current !== ws) { return; }
+      let parsedData; try { parsedData = JSON.parse(event.data); } catch (e) { console.error('[WS] message parse error', e); handlers.onError?.(e); return; }
+      let mainPayload = null, userModelState = null;
+      if (parsedData?.content_type && parsedData.data && parsedData.user_model_state) { mainPayload = parsedData.data; userModelState = parsedData.user_model_state; handlers.onInteractionResponse?.(parsedData); }
+      else if (parsedData?.response_type) { mainPayload = parsedData; handlers.onInteractionResponse?.({ content_type: parsedData.response_type, data: mainPayload, user_model_state: null }); }
+      else if (parsedData?.type === 'raw_delta') { handlers.onRawResponse?.(parsedData.delta); }
+      else if (parsedData?.type) { switch (parsedData.type) { case 'pong': if(pingTimestampRef.current){setLatency(Date.now()-pingTimestampRef.current); pingTimestampRef.current=null;} break; case 'ack': console.debug('ack'); break; default: handlers.onUnhandled?.(parsedData);}}
+      else { console.error('[WS] Received unknown message structure:', parsedData); handlers.onError?.(new Error("Unknown message format"));}
+      if(mainPayload){ const currentStoreState = getState(); const newState:Partial<any>={currentInteractionContent:mainPayload,loadingState:'idle',loadingMessage:'',error: mainPayload.response_type === 'error' ? mainPayload.message : currentStoreState.error}; if(userModelState){newState.userModelState = userModelState;} setSessionState({...currentStoreState, ...newState});}
     };
+    if (wsRef.current !== ws) {
+      console.warn("[WebSocket] wsRef.current was potentially overwritten immediately after creation. Race condition?");
+    }
+  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState]);
 
-    // Cleanup function
+  useEffect(() => {
+    isComponentMountedRef.current = true;
+    console.log("[WebSocket] Mount effect running. Attempting initial connect.");
+    if (sessionId && jwt) {
+      hasAttemptedConnectionRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      connect();
+    }
     return () => {
-      console.log(`[WebSocket] Cleanup effect for session: ${sessionId}`);
-      hasSentStartRef.current = false;
-      if (wsRef.current) {
-        console.log(`[WebSocket] Closing socket explicitly in cleanup. ReadyState: ${wsRef.current.readyState}`);
-        if (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) {
-          wsRef.current.close(1000, "Component unmounting or dependency change");
-        }
-        wsRef.current = null;
+      isComponentMountedRef.current = false;
+      console.log(`[WebSocket] Unmount cleanup for session: ${sessionId}`);
+      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+      if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null; }
+      const wsInstance = wsRef.current;
+      if (wsInstance) {
+        console.log(`[WebSocket] Closing socket (state: ${wsInstance.readyState}) in unmount cleanup.`);
+        wsInstance.onclose = null; wsInstance.onerror = null; wsInstance.onmessage = null; wsInstance.onopen = null;
+        try {
+          if (wsInstance.readyState === WebSocket.OPEN || wsInstance.readyState === WebSocket.CONNECTING) {
+            wsInstance.close(1000, "Component unmounting");
+          }
+        } catch (e) { console.warn("Error during cleanup close:", e)}
       }
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      // Deregister send function on unmount
-      console.log('[WebSocket] Deregistering send function (unmount).');
+      wsRef.current = null;
+      console.log('[WebSocket] Deregistering send function on unmount.');
       deregisterWebSocketSend();
     };
-  }, [sessionId, jwt]);
+  }, [sessionId, jwt, connect, deregisterWebSocketSend]);
 
-  // Return connection state, event handlers, and debug info
-  return { connected, send: sendMessage, on: onTutorEvent, off: offTutorEvent, latency, agentTurn };
+  return { connected, send: sendMessage, on: onTutorEvent, off: offTutorEvent, latency };
 } 
