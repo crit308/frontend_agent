@@ -16,9 +16,19 @@ import { FolderPlus, Folder as FolderIcon, UploadCloud } from 'lucide-react';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { FolderResponse } from '@/lib/types';
 import { Separator } from '@/components/ui/separator';
+import type { StructuredError } from '@/store/sessionStore';
+
+// Define props type for FolderList
+interface FolderListProps {
+  folders: FolderResponse[];
+  selectedFolderId: string | null;
+  loadingState: SessionState['loadingState'];
+  onSelect: (folderId: string | null) => void;
+  onDeselect: () => void;
+}
 
 // Memoized folder list component to avoid rerenders on auth events
-const FolderList = React.memo(({ folders, selectedFolderId, loadingState, onSelect, onDeselect }) => (
+const FolderList = React.memo(({ folders, selectedFolderId, loadingState, onSelect, onDeselect }: FolderListProps) => (
   <div>
     <Label htmlFor="folder-select">Select Folder</Label>
     <div className="flex items-center gap-2 mt-1">
@@ -30,7 +40,7 @@ const FolderList = React.memo(({ folders, selectedFolderId, loadingState, onSele
         disabled={!folders || folders.length === 0 || loadingState === 'loading' || loadingState === 'interacting'}
       >
         <option value="" disabled>-- Select a folder --</option>
-        {folders.map(folder => (
+        {folders.map((folder: FolderResponse) => (
           <option key={folder.id} value={folder.id}>{folder.name}</option>
         ))}
       </select>
@@ -154,6 +164,7 @@ export default function HomePage() {
 
       setLoading('success');
       setLoadingMessage('Preparation complete!');
+      toast({ title: "Ready!", description: "Navigating to learning session..." });
 
       router.push(`/session/${sessionResponse.session_id}/learn`);
 
@@ -161,7 +172,7 @@ export default function HomePage() {
       console.error("Upload failed:", error);
       const errorMessage = error.response?.data?.detail || error.message || 'An unknown error occurred during upload.';
       const finalMessage = error.response?.status === 401 ? "Authentication failed. Please check your API key." : errorMessage;
-      setError(`Upload failed: ${finalMessage}`);
+      setError({ message: `Upload failed: ${finalMessage}` });
       setLoading('error');
       setLoadingMessage('An error occurred.');
       toast({ title: "Upload Failed", description: errorMessage, variant: "destructive" });
@@ -261,7 +272,12 @@ export default function HomePage() {
               {loadingState !== 'idle' && loadingState !== 'success' && (
                 <LoadingSpinner message={loadingMessage} />
               )}
-              {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+              {error && (
+                <div className="text-red-500 text-sm mt-2 p-2 bg-red-50 rounded-md">
+                  <p><strong>Error:</strong> {typeof error === 'object' && error !== null && error.message ? error.message : 'An unknown error occurred'}</p>
+                  {typeof error === 'object' && error !== null && error.code && <p>Code: {error.code}</p>}
+                </div>
+              )}
             </CardContent>
             <CardFooter>
               <Button

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useEffect, useContext, ReactNode, useMemo } from 'react';
+import React, { createContext, useState, useEffect, useContext, ReactNode, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -78,25 +78,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         };
     }, [setStoreUser]); // Add setStoreUser dependency
 
-    const signOut = async () => {
-        // setLoading(true); // Consider if spinner is needed during sign out
+    /**
+     * Memoized sign-out function to ensure a stable reference between renders.
+     * This prevents unnecessary re-creations of the surrounding `value` object
+     * returned by `useMemo`, allowing React context consumers to avoid
+     * superfluous re-renders when auth state hasn't actually changed.
+     */
+    const signOut = useCallback(async () => {
         console.log("AuthProvider: Signing out...");
         const { error } = await supabase.auth.signOut();
         if (error) {
             console.error("AuthProvider: Error signing out:", error);
-            // Handle error (e.g., show toast)
+            // Consider adding user-facing feedback here (e.g., toast notification)
         }
-        // State updates handled by onAuthStateChange listener
-        // setLoading(false); // Corresponding setLoading(false) if spinner used
-    };
+        // State updates are handled by the `onAuthStateChange` listener.
+    }, []);
 
-    const value = useMemo(() => ({
-        user,
-        session,
-        loading,
-        signOut,
-        // Add other auth methods here
-    }), [user, session, loading, signOut]);
+    const value = useMemo(
+        () => ({
+            user,
+            session,
+            loading,
+            signOut,
+            // Add other auth methods here
+        }),
+        [user, session, loading] // `signOut` is stable due to `useCallback`
+    );
 
     console.log("AuthProvider: Rendering. Loading state:", loading);
 

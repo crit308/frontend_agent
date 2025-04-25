@@ -18,6 +18,15 @@ import {
 import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
 
+// Define connection status type (matches useTutorStream)
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'auth_error';
+
+// Define structured error type
+export interface StructuredError {
+  message: string;
+  code?: string; // e.g., SESSION_LOAD_FAILED, AUTH_ERROR
+}
+
 // Export the interface
 export interface SessionState {
   // Core data state
@@ -27,16 +36,17 @@ export interface SessionState {
   lessonContent: LessonContent | null;
   quiz: Quiz | null;
   quizFeedback: QuizFeedback | null;
-  userQuizAnswers: { [key: number]: QuizUserAnswer };
+  quizUserAnswers: { [key: number]: QuizUserAnswer };
   loadingState: LoadingState;
   loadingMessage: string;
-  error: string | null;
+  error: StructuredError | null;
   user: User | null;
   sessionAnalysis: SessionAnalysis | null;
   isSubmittingQuiz: boolean;
 
   // WebSocket state
   webSocketSendFunction: ((payload: any) => void) | null;
+  connectionStatus: ConnectionStatus;
 
   // --- NEW State for Interaction Model ---
   currentInteractionContent: TutorInteractionResponse | null;
@@ -50,7 +60,7 @@ export interface SessionState {
   setSelectedFolderId: (folderId: string | null) => void;
   setVectorStoreId: (vectorStoreId: string | null) => void;
   setLoading: (state: LoadingState, message?: string) => void;
-  setError: (error: string | null) => void;
+  setError: (error: StructuredError | null) => void;
   setSessionAnalysis: (analysis: SessionAnalysis | null) => void;
   setIsSubmittingQuiz: (isSubmitting: boolean) => void;
   resetSession: () => void;
@@ -75,7 +85,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   quiz: null,
   quizFeedback: null,
   sessionAnalysis: null,
-  userQuizAnswers: {},
+  quizUserAnswers: {},
   isSubmittingQuiz: false,
   loadingState: 'idle',
   error: null,
@@ -84,6 +94,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // WebSocket state
   webSocketSendFunction: null,
+  connectionStatus: 'idle',
 
   // --- NEW Initial State ---
   currentInteractionContent: null,
@@ -96,7 +107,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setSelectedFolderId: (folderId) => set({ folderId }),
   setVectorStoreId: (vectorStoreId) => set({ vectorStoreId }),
-  setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? message : null }),
+  setLoading: (state, message = '') => set({ loadingState: state, loadingMessage: message, error: state === 'error' ? { message: message || 'An error occurred' } : null }),
   setError: (error) => set({ error: error, loadingState: error ? 'error' : 'idle' }),
   setUser: (user) => set({ user }),
   setSessionAnalysis: (analysis) => set({ sessionAnalysis: analysis }),
@@ -112,11 +123,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sendInteraction: async (type, data) => {
       const { sessionId, webSocketSendFunction } = get();
       if (!sessionId) {
-          set({ error: "No active session.", loadingState: 'error' });
+          set({ error: { message: "No active session." }, loadingState: 'error' });
           return;
       }
       if (!webSocketSendFunction) {
-           set({ error: "WebSocket not connected or ready.", loadingState: 'error' });
+           set({ error: { message: "WebSocket not connected or ready." }, loadingState: 'error' });
            console.warn("sendInteraction: WebSocket send function not registered.");
            return;
       }
@@ -131,7 +142,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               const text = data?.text;
               if (typeof text !== 'string') {
                   console.error("Store: 'user_message' type requires a 'text' field in data.");
-                  set({ error: "Invalid message format.", loadingState: 'error', loadingMessage: '' });
+                  set({ error: { message: "Invalid message format." }, loadingState: 'error', loadingMessage: '' });
                   return;
               }
               payload = { type: type, data: { text: text } };
@@ -145,7 +156,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       } catch (err: any) {
           const errorMessage = err.message || 'Failed to send interaction via WebSocket.';
           console.error("Store: Error sending interaction via WebSocket:", err);
-          set({ error: errorMessage, loadingState: 'error', loadingMessage: '' });
+          set({ error: { message: errorMessage }, loadingState: 'error', loadingMessage: '' });
       }
   },
 
@@ -157,7 +168,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     quiz: null,
     quizFeedback: null,
     sessionAnalysis: null,
-    userQuizAnswers: {},
+    quizUserAnswers: {},
     isSubmittingQuiz: false,
     loadingState: 'idle',
     error: null,
@@ -169,5 +180,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     isLessonComplete: false,
     focusObjective: null,
     webSocketSendFunction: null,
+    connectionStatus: 'idle',
   }),
 }));
