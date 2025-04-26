@@ -3,12 +3,9 @@
 import React, { useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
-import {
-  ExplanationView,
-  QuestionView,
-  FeedbackView,
-  MessageView,
-} from '@/components/OrchestratorViews';
+import ExplanationViewComponent from '@/components/interaction/ExplanationView';
+import QuestionView from '@/components/views/QuestionView';
+import { FeedbackView, MessageView } from '@/components/OrchestratorViews';
 import type {
   ExplanationResponse,
   QuestionResponse,
@@ -26,6 +23,7 @@ import { AlertTriangle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import type { SessionState } from '@/store/sessionStore';
 import type { StructuredError } from '@/store/sessionStore';
+import ExplanationView from '@/components/views/ExplanationView';
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -37,7 +35,6 @@ export default function LearnPage() {
     error,
     connectionStatus,
     sendInteraction,
-    currentQuizQuestion
   } = useSessionStore(
     useShallow((state: SessionState) => ({
       currentInteractionContent: state.currentInteractionContent,
@@ -45,7 +42,6 @@ export default function LearnPage() {
       error: state.error,
       connectionStatus: state.connectionStatus,
       sendInteraction: state.sendInteraction,
-      currentQuizQuestion: state.currentQuizQuestion,
     }))
   );
 
@@ -62,6 +58,23 @@ export default function LearnPage() {
       console.log("LearnPage UNMOUNTING");
     };
   }, []);
+
+  // Effect to handle auto-advance on the last explanation segment
+  useEffect(() => {
+    if (
+      currentInteractionContent &&
+      currentInteractionContent.response_type === 'explanation' &&
+      currentInteractionContent.is_last_segment === true
+    ) {
+      console.log('[LearnPage] Last explanation segment received, auto-advancing...');
+      // Short delay to allow user to read the last segment briefly before transition
+      const timer = setTimeout(() => {
+           sendInteraction('next');
+      }, 1500); // 1.5 second delay
+
+      return () => clearTimeout(timer); // Cleanup timeout on unmount or if content changes
+    }
+  }, [currentInteractionContent, sendInteraction]);
 
   console.log('[LearnPage] Rendering. InteractionContent:', currentInteractionContent, 'Status:', connectionStatus, 'LoadingState:', loadingState, 'AuthLoading:', authLoading);
 
@@ -92,70 +105,78 @@ export default function LearnPage() {
   const errorMessage = errorDetails?.message || (isAuthError ? "Authentication failed. Please log in again." : "An unexpected error occurred.");
 
   const renderWhiteboardContent = () => {
-    if (isLoading || isErrorState || missingCredentials) {
-        return null; // Don't render whiteboard content if page is loading/in error state
-    }
+    // Loading/Error/Missing states handled outside this function now
 
     const interactionContent = currentInteractionContent as TutorInteractionResponse | null;
+
     if (!interactionContent) {
-        if (loadingState === 'interacting') {
-             return <LoadingSpinner message="Tutor is thinking..." />;
-        }
-        return <p className="p-4 text-muted-foreground">Waiting for tutor...</p>;
+      if (loadingState === 'interacting') {
+          return <LoadingSpinner message="Tutor is thinking..." />;
+      }
+      // If not loading, and no interaction content, show waiting message
+      return <p className="p-4 text-muted-foreground">Waiting for tutor...</p>;
     }
+
+    // Type check and switch based on response_type property
     if (typeof interactionContent !== 'object' || interactionContent === null || !('response_type' in interactionContent)) {
-        console.warn("Received content without response_type:", interactionContent);
+        console.warn("Received content without response_type property:", interactionContent);
         return <p className="p-4 text-muted-foreground">Received unexpected content from tutor.</p>;
     }
-    const typedContent = interactionContent as TutorInteractionResponse;
-    switch (typedContent.response_type) {
-      case 'explanation':
-        const explanationData = typedContent as ExplanationResponse;
+
+    switch (interactionContent.response_type) {
+      case 'explanation': {
+        const explanationContent = interactionContent as ExplanationResponse;
         return (
           <ExplanationView
-            text={explanationData.text}
+            content={explanationContent}
+            showNextButton={!explanationContent.is_last_segment}
             onNext={() => sendInteraction('next')}
           />
         );
-      case 'question':
-        const questionData = typedContent as QuestionResponse;
-        if (!questionData.question || !questionData.question.options) {
-            return <p className="text-red-600 p-4">Error: Received invalid question data.</p>;
+      }
+      case 'question': {
+        const questionContent = interactionContent as QuestionResponse;
+        if (!questionContent.question || !questionContent.question.options) {
+          console.error("LearnPage: Received invalid question data structure", interactionContent);
+          return <p className="text-red-600 p-4">Error: Received invalid question data format.</p>;
         }
         return (
           <QuestionView
-            question={questionData.question}
-            onAnswer={(idx) => sendInteraction('answer', { answer_index: idx })}
+            content={questionContent}
           />
         );
-      case 'feedback':
-        const feedbackData = typedContent as FeedbackResponse;
-         if (!feedbackData.feedback) {
-            return <p className="text-red-600 p-4">Error: Received invalid feedback data.</p>;
-  }
+      }
+      case 'feedback': {
+        const { feedback } = interactionContent;
+        if (!feedback) {
+          console.error("LearnPage: Received invalid feedback data", interactionContent);
+          return <p className="text-red-600 p-4">Error: Received invalid feedback data format.</p>;
+        }
         return (
           <FeedbackView
-            feedback={feedbackData.feedback}
+            feedback={feedback}
             onNext={() => sendInteraction('next')}
           />
         );
-      case 'message':
-       const messageData = typedContent as MessageResponse;
-       return <MessageView text={messageData.text} />;
-      case 'error':
-        const errorData = typedContent as ErrorResponse;
+      }
+      case 'message': {
+        const { text } = interactionContent;
+        return <MessageView text={text} />;
+      }
+      case 'error': {
+        const { message, error_code } = interactionContent;
         return (
-            <Alert variant="destructive" className="m-4">
-                 <AlertTriangle className="h-4 w-4" />
-                 <AlertTitle>Tutor Error</AlertTitle>
-                 <AlertDescription>{errorData.message}</AlertDescription>
-            </Alert>
+          <Alert variant="destructive" className="m-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Tutor Error ({error_code || 'Unknown'})</AlertTitle>
+            <AlertDescription>{message}</AlertDescription>
+          </Alert>
         );
+      }
       default:
-        // @ts-ignore
-        console.warn("Unknown response type:", typedContent.response_type);
-        // @ts-ignore
-        return <p className="p-4 text-muted-foreground">Received unknown content type: {typedContent.response_type}</p>;
+        // Use type assertion for default case
+        console.warn("Unknown response type in renderWhiteboardContent:", (interactionContent as any).response_type);
+        return <p className="p-4 text-muted-foreground">Received unknown content type: {(interactionContent as any).response_type}</p>;
     }
   };
 
@@ -167,7 +188,7 @@ export default function LearnPage() {
           {missingCredentials || isAuthError ? (
              <div className="p-4 text-center text-muted-foreground">Chat unavailable</div>
           ) : sessionId && jwt ? (
-           <TutorChat sessionId={sessionId} jwt={jwt} connectionStatus={connectionStatus} />
+           <TutorChat sessionId={sessionId} jwt={jwt} />
           ) : (
              <div className="p-4 flex items-center justify-center h-full">
                 <LoadingSpinner message="Loading Chat..." />

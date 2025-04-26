@@ -1,60 +1,73 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { nanoid } from 'nanoid';
+import React, { useState } from 'react';
 import { useSessionStore } from '@/store/sessionStore';
-import type { ConnectionStatus } from '@/store/sessionStore';
+import type { ConnectionStatus, StructuredError } from '@/store/sessionStore';
+import { useShallow } from 'zustand/react/shallow';
 
-interface Message {
-  id: string;
-  text: string;
-  from: 'user' | 'tutor';
+// Placeholder/Basic Components (Can be replaced with styled versions)
+const LoadingSpinner = () => <div className="p-4 text-center text-gray-500">Loading...</div>; // Basic spinner
+const ErrorDisplay = ({ error }: { error: StructuredError }) => (
+  <div className="p-4 bg-red-100 border border-red-300 rounded-md text-red-800">
+    <strong>Error:</strong> {error.message} {error.code ? `(${error.code})` : ''}
+  </div>
+); // Basic error display
+
+interface TutorChatProps {
+  sessionId: string;
+  jwt: string;
 }
 
-export default function TutorChat({ sessionId, jwt, connectionStatus }: { sessionId: string; jwt: string; connectionStatus: ConnectionStatus }) {
+export default function TutorChat({ sessionId, jwt }: TutorChatProps) {
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
 
-  const sendInteraction = useSessionStore((state) => state.sendInteraction);
+  // Only get state needed for sending messages and managing input state
+  const {
+    sendInteraction,
+    loadingState, // Keep for disabling input
+    error, // Keep for showing connection errors
+    connectionStatus: wsConnectionStatus
+  } = useSessionStore(
+    useShallow((state) => ({
+      sendInteraction: state.sendInteraction,
+      loadingState: state.loadingState,
+      error: state.error,
+      connectionStatus: state.connectionStatus,
+    }))
+  );
 
   const handleSend = () => {
     const trimmedInput = input.trim();
-    if (!trimmedInput || connectionStatus !== 'connected') return;
-
-    const userMsg = { id: nanoid(), text: trimmedInput, from: 'user' as const };
-    setMessages(prev => [...prev, userMsg]);
+    if (!trimmedInput || wsConnectionStatus !== 'connected') return;
 
     sendInteraction('user_message', { text: trimmedInput });
     setInput('');
   };
 
   return (
-    <div style={{ border: '1px solid #ddd', padding: 16, maxWidth: 800, margin: 'auto', display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ flexGrow: 1, overflowY: 'auto', marginBottom: 12, background: '#f9f9f9', padding: 8, border: '1px solid #eee', borderRadius: '4px' }}>
-        {messages.map(msg => (
-          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.from === 'user' ? 'flex-end' : 'flex-start', margin: '4px 0' }}>
-            <span style={{ display: 'inline-block', padding: '6px 12px', borderRadius: 16, background: msg.from === 'user' ? '#d1e7dd' : '#e2e3e5', maxWidth: '80%', wordBreak: 'break-word' }}>
-              {msg.text.split('\n').map((line, index) => (
-                <React.Fragment key={index}>
-                  {line}
-                  {index < msg.text.split('\n').length - 1 && <br />}
-                </React.Fragment>
-              ))}
-            </span>
-          </div>
-        ))}
+    <div className="flex flex-col h-full max-w-3xl mx-auto border rounded-lg shadow-md bg-white">
+      {/* Display Area - This should now contain message history or be empty */}
+      <div className="flex-grow overflow-y-auto p-4 space-y-4 bg-gray-50">
+        {/* Placeholder for message history rendering */} 
+        <div className="text-center text-gray-400 italic py-4">Chat Area</div>
+         {/* Display connection errors here if desired */} 
+         {error && wsConnectionStatus === 'error' && (
+            <ErrorDisplay error={error} />
+         )}
       </div>
-      <div style={{ display: 'flex', flexShrink: 0 }}>
+
+      {/* Input Area */} 
+      <div className="flex-shrink-0 p-4 border-t bg-white flex space-x-2">
         <input
-          style={{ flex: 1, padding: 8, border: '1px solid #ccc', borderRadius: '4px' }}
+          className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none disabled:bg-gray-100 disabled:cursor-not-allowed"
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder="Type your message..."
-          onKeyDown={e => e.key === 'Enter' && handleSend()}
-          disabled={connectionStatus !== 'connected'}
+          placeholder={loadingState === 'interacting' ? "Tutor is thinking..." : "Type your message or response..."}
+          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()} // Send on Enter, allow Shift+Enter for newline
+          disabled={wsConnectionStatus !== 'connected' || loadingState === 'interacting'}
         />
         <button
-          style={{ marginLeft: 8, padding: '8px 12px', cursor: connectionStatus === 'connected' ? 'pointer' : 'not-allowed', opacity: connectionStatus === 'connected' ? 1 : 0.6 }}
+          className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={handleSend}
-          disabled={connectionStatus !== 'connected'}
+          disabled={wsConnectionStatus !== 'connected' || loadingState === 'interacting'}
         >
           Send
         </button>

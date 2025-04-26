@@ -3,7 +3,12 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { connectTutorStream, StreamEvent, onTutorEvent, offTutorEvent } from './wsTutor';
 import { useToast } from '@/components/ui/use-toast';
 import { ToastAction, type ToastActionElement } from '@/components/ui/toast';
-import { useSessionStore } from '@/store/sessionStore';
+import { useSessionStore, type SessionState, type StructuredError, type LoadingState } from '@/store/sessionStore';
+import {
+  InteractionResponseData,
+  QuestionResponse,
+  ErrorResponse,
+} from '@/lib/types';
 
 // Define more specific connection status types
 type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'auth_error';
@@ -46,6 +51,7 @@ export function useTutorStream(
   const { toast } = useToast();
   const [latency, setLatency] = useState<number | null>(null);
   const pingTimestampRef = useRef<number | null>(null);
+  const isMountedEffectRef = useRef(false); // Tracks if the *current* instance's effect is active
 
   // --- Use stable references for store actions ---
   const registerWebSocketSend = useSessionStore.getState().registerWebSocketSend;
@@ -111,7 +117,7 @@ export function useTutorStream(
     const ws = connectTutorStream(sessionId, jwt);
     wsRef.current = ws;
     ws.onopen = () => {
-      if (wsRef.current !== ws) { console.log("[WebSocket] Ignoring open event from stale connection."); ws.close(1000, "Stale connection"); return; }
+      if (wsRef.current !== ws || !isComponentMountedRef.current) { console.log("[WebSocket] Ignoring open event from stale connection or unmounted component."); ws.close(1000, "Stale connection/Unmounted"); return; }
       console.log(`[WebSocket] Connection OPENED for session: ${sessionId}`);
       reconnectAttemptsRef.current = 0;
       updateStatus('connected');
@@ -145,10 +151,9 @@ export function useTutorStream(
     };
     ws.onerror = (error) => {
       console.error(`[WebSocket] Error on socket for session ${sessionId}:`, error);
-      if (wsRef.current === ws) {
-        updateStatus('error', { message: 'WebSocket connection error.' });
-        handlers.onError?.(error);
-      } else { console.log("[WebSocket] Ignoring error from stale connection attempt."); }
+      if (wsRef.current !== ws || !isComponentMountedRef.current) { console.log("[WebSocket] Ignoring error from stale connection or unmounted component."); return; }
+      updateStatus('error', { message: 'WebSocket connection error.' });
+      handlers.onError?.(error);
     };
     ws.onclose = (event) => {
       if (wsRef.current !== ws) { console.log(`[WebSocket] Ignoring close event from STALE socket instance for session ${sessionId}.`); return; }
@@ -156,8 +161,11 @@ export function useTutorStream(
       wsRef.current = null;
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current); pingIntervalRef.current = null;
       if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current); pongTimeoutRef.current = null;
+      if (!isComponentMountedRef.current) {
+        console.log('[WebSocket] Connection closed, but component already unmounted. Final state update skipped.');
+        return;
+      }
       handlers.onClose?.(event);
-      if (!isComponentMountedRef.current) { console.log('[WebSocket] Connection closed & component unmounted. Not reconnecting.'); updateStatus('idle'); return; }
       if (event.code === 1008) {
         console.error(`[WebSocket] Authentication failed (Close code 1008). Not reconnecting.`);
         updateStatus('auth_error', { message: 'Authentication failed. Please log in again.', code: 'AUTH_ERROR' });
@@ -185,10 +193,11 @@ export function useTutorStream(
       }
     };
     ws.onmessage = (event) => {
-      if (wsRef.current !== ws) { return; }
+      if (wsRef.current !== ws || !isComponentMountedRef.current) { console.log("[WebSocket] Ignoring message from stale connection or unmounted component."); return; }
       let parsedData; try { parsedData = JSON.parse(event.data); } catch (e) { console.error('[WS] message parse error', e); handlers.onError?.(e); updateStatus('error', { message: 'Received invalid message format.' }); return; }
 
       // --- Handle specific message types ---
+      console.log("[WS] Raw parsed data:", parsedData); // Log raw structure
 
       // Ping/Pong
       if (parsedData?.type === 'pong') {
@@ -217,98 +226,190 @@ export function useTutorStream(
       }
 
       // --- Handle InteractionResponseData structure ---
-      if (parsedData?.content_type && parsedData.data && parsedData.user_model_state) {
-        const { content_type, data, user_model_state } = parsedData;
-        console.log(`[WS] Received InteractionResponse: type=${content_type}`);
+      // Check if it matches the expected wrapper structure
+      if (parsedData && typeof parsedData === 'object' &&
+          'content_type' in parsedData &&
+          'data' in parsedData && // Ensure data exists
+          'user_model_state' in parsedData) // Check only top-level keys
+      {
+        const interactionResponse = parsedData as InteractionResponseData; // Type assertion
+        console.log(`[WS] Received InteractionResponse: type=${interactionResponse.content_type}`);
 
-        // Pass the whole structured response to the handler
-        handlers.onInteractionResponse?.(parsedData);
+        // Extract the relevant parts
+        const contentType = interactionResponse.content_type;
+        const dataPayload = interactionResponse.data; // This is ExplanationResponse, QuestionResponse etc.
+        const userModelState = interactionResponse.user_model_state;
 
-        // Update Zustand store based on content_type
-        const currentStoreState = getState();
-        const newState: Partial<any> = { userModelState: user_model_state }; // Always update userModelState
+        // Pass the whole structured response to the handler if provided (optional)
+        handlers.onInteractionResponse?.(interactionResponse);
 
-        if (content_type === 'error') {
-          // Specific handling for BE errors sent via JSON
-          const errorData = data as { response_type: 'error', message: string, error_code?: string, details?: any };
-          console.error(`[WS] Received backend error: ${errorData.message} (Code: ${errorData.error_code})`);
-          newState.error = { message: errorData.message, code: errorData.error_code };
-          newState.loadingState = 'idle';
-          // Optionally update local status, though store update might be sufficient
-          // updateStatus('error', newState.error);
-        } else if (content_type === 'message') {
-          // Handle successful message response
-          newState.currentInteractionContent = data; // Assuming 'data' is MessageResponse
-          newState.loadingState = 'idle';
-          newState.loadingMessage = '';
-          newState.error = null; // Clear previous errors on successful message
-        } else {
-          // Handle other potential content_types if added later
-          console.warn(`[WS] Received unhandled content_type: ${content_type}`);
-          newState.loadingState = 'idle'; // Assume idle if unknown type
-        }
-        setSessionState({ ...currentStoreState, ...newState });
-        return; // Handled
+        // Update Zustand store using functional update
+        setSessionState((prevState) => {
+            // Determine error state and loading state based on content type
+            let newError: StructuredError | null = null; // Use StructuredError type
+            let newLoadingState: LoadingState = 'idle'; // Default to idle after response
+
+            if (contentType === 'error' && dataPayload && typeof dataPayload === 'object' && 'response_type' in dataPayload && dataPayload.response_type === 'error') {
+                const errorData = dataPayload as ErrorResponse;
+                newError = { message: errorData.message, code: errorData.error_code || 'BACKEND_ERROR' }; // Keep object format
+                newLoadingState = 'idle'; // Even on backend error, interaction flow might stop, FE is idle/showing error
+                console.error(`[WS] Received backend error: ${newError.message} (Code: ${newError.code})`);
+            }
+
+            // Prepare the final state update, clearing previous errors if this is not an error message
+            const newState: Partial<SessionState> = {
+                currentInteractionContent: dataPayload, // Store the actual content (ExplanationResponse, QuestionResponse, ErrorResponse etc.)
+                userModelState: userModelState,
+                loadingState: newLoadingState,
+                loadingMessage: '', // Clear loading message
+                error: newError !== null ? newError : null, // Set new error, or clear existing non-connection errors
+                // Handle question storage specifically
+                currentQuizQuestion: (contentType === 'question' && dataPayload && typeof dataPayload === 'object' && 'question' in dataPayload)
+                                    ? (dataPayload as QuestionResponse).question
+                                    : (newLoadingState === 'idle' ? null : prevState.currentQuizQuestion), // Clear question if idle, otherwise keep previous
+            };
+
+            return { ...prevState, ...newState };
+        });
+
+      } else {
+        // Handle other unexpected message structures
+        console.error('[WS] Received unexpected message structure:', parsedData);
+        handlers.onUnhandled?.(parsedData); // Pass to unhandled handler if provided
+
+        // Update store error state with StructuredError format
+        setSessionState({
+             error: { message: "Received unexpected data format from tutor." }, // Use object format
+             loadingState: 'idle', // Transition to idle on format error
+             loadingMessage: '',
+        });
       }
-
-      // --- Fallback for older/unstructured message types (Maintain for now?) ---
-      // Note: This block might become redundant if BE *always* uses InteractionResponseData
-      if (parsedData?.response_type) {
-        console.warn("[WS] Received deprecated message structure (using response_type):", parsedData);
-        const mainPayload = parsedData;
-        handlers.onInteractionResponse?.({ content_type: parsedData.response_type, data: mainPayload, user_model_state: null }); // Adapt to new handler format
-        const currentStoreState = getState();
-        const newState: Partial<any> = { currentInteractionContent: mainPayload, loadingState: 'idle', loadingMessage: '' };
-        if (mainPayload.response_type === 'error') {
-          newState.error = { message: mainPayload.message }; // No error code available here
-        } else {
-          newState.error = null;
-        }
-        setSessionState({ ...currentStoreState, ...newState });
-        return; // Handled
-      }
-
-
-      // --- Catch unhandled messages ---
-      console.error('[WS] Received unknown message structure:', parsedData);
-      handlers.onUnhandled?.(parsedData);
-      updateStatus('error', { message: 'Received unknown message format.' }); // Update status on unknown format
-
     };
     if (wsRef.current !== ws) {
       console.warn("[WebSocket] wsRef.current was potentially overwritten immediately after creation. Race condition?");
     }
   }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus]);
 
+  // --- Main Effect for Connection Management ---
   useEffect(() => {
-    isComponentMountedRef.current = true;
-    console.log("[WebSocket] Mount effect running. Attempting initial connect.");
-    if (sessionId && jwt) {
-      hasAttemptedConnectionRef.current = false;
-      reconnectAttemptsRef.current = 0;
-      connect();
-    }
-    return () => {
-      isComponentMountedRef.current = false;
-      console.log(`[WebSocket] Unmount cleanup for session: ${sessionId}`);
-      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
-      if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null; }
-      if (pongTimeoutRef.current) { clearTimeout(pongTimeoutRef.current); pongTimeoutRef.current = null; }
-      const wsInstance = wsRef.current;
-      if (wsInstance) {
-        console.log(`[WebSocket] Closing socket (state: ${wsInstance.readyState}) in unmount cleanup.`);
-        wsInstance.onclose = null; wsInstance.onerror = null; wsInstance.onmessage = null; wsInstance.onopen = null;
-        try {
-          if (wsInstance.readyState === WebSocket.OPEN || wsInstance.readyState === WebSocket.CONNECTING) {
-            wsInstance.close(1000, "Component unmounting");
-          }
-        } catch (e) { console.warn("Error during cleanup close:", e)}
-      }
-      wsRef.current = null;
-      console.log('[WebSocket] Deregistering send function on unmount.');
-      deregisterWebSocketSend();
-    };
-  }, [sessionId, jwt, connect, deregisterWebSocketSend]);
+    isComponentMountedRef.current = true; // Component is mounting or re-mounting
 
-  return { connectionStatus, send: sendMessage, on: onTutorEvent, off: offTutorEvent, latency };
+    // Prevent double invocation issues in StrictMode/Fast Refresh
+    if (isMountedEffectRef.current) {
+       console.log("[WebSocket] Mount effect skipped: Already mounted/running from a previous effect run.");
+       // If we skip, it means the previous effect's instance is likely the one we want to keep.
+       // We might need to ensure the cleanup from THIS skipped run doesn't interfere,
+       // but the main goal is to let the *first* effect's instance establish itself.
+       return;
+    }
+    isMountedEffectRef.current = true;
+    console.log("[WebSocket] Mount effect running. Attempting initial connect.");
+
+    connect(); // Attempt connection
+
+    // Store the WebSocket instance initiated by THIS effect run
+    // Note: connect() sets wsRef.current asynchronously within itself.
+    // We capture the ref value *after* connect starts, but the instance might change later.
+    // The check inside cleanup needs to be robust.
+
+
+    return () => {
+      console.log(`[WebSocket] Cleanup effect running for session: ${sessionId}`);
+      isMountedEffectRef.current = false; // Mark this specific effect instance as "unmounted"
+
+      // Store the WebSocket instance that was active *when this cleanup function was created*.
+      const wsInstanceAtCleanupTime = wsRef.current;
+
+      // Add a small delay ONLY IN DEV to see if a remount happens quickly
+      // This helps prevent the first mount's cleanup from destroying the second mount's connection
+      const timeoutId = setTimeout(() => {
+          console.log(`[WebSocket] Delayed cleanup executing. isMountedEffectRef.current (flag from other potential effect): ${isMountedEffectRef.current}`);
+
+          // Only perform cleanup if another mount effect hasn't immediately set the flag back to true
+          // AND if the WebSocket instance associated with this cleanup closure still exists.
+          if (!isMountedEffectRef.current && wsInstanceAtCleanupTime) {
+               console.log(`[WebSocket] Performing cleanup for WS instance associated with this effect run.`);
+
+               // Clear timers associated with this hook instance
+               if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
+               if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null; }
+               if (pongTimeoutRef.current) { clearTimeout(pongTimeoutRef.current); pongTimeoutRef.current = null; }
+
+
+               // Nullify callbacks on the specific instance we captured to prevent memory leaks/stale closures
+               wsInstanceAtCleanupTime.onclose = null;
+               wsInstanceAtCleanupTime.onerror = null;
+               wsInstanceAtCleanupTime.onmessage = null;
+               wsInstanceAtCleanupTime.onopen = null;
+
+               try {
+                  // Check the state of the instance we are cleaning up
+                  if (wsInstanceAtCleanupTime.readyState === WebSocket.OPEN || wsInstanceAtCleanupTime.readyState === WebSocket.CONNECTING) {
+                      wsInstanceAtCleanupTime.close(1000, "Component unmounting or effect cleanup");
+                      console.log("[WebSocket] WS close called in delayed cleanup.");
+                  } else {
+                      console.log(`[WebSocket] WS not open/connecting (state: ${wsInstanceAtCleanupTime.readyState}), cleanup skipping close call.`);
+                  }
+               } catch (e) { console.warn("[WebSocket] Error during delayed cleanup close:", e)}
+
+               // Only clear the main wsRef if the instance we just closed IS the currently active one.
+               // This prevents accidentally nulling out the ref if a quick remount already established a new connection.
+               if(wsRef.current === wsInstanceAtCleanupTime) {
+                    wsRef.current = null;
+                    console.log('[WebSocket] Cleared main wsRef.');
+               } else {
+                    console.log('[WebSocket] Main wsRef points to a different instance; not clearing it.');
+               }
+               console.log('[WebSocket] Deregistering send function.');
+               deregisterWebSocketSend(); // Deregister from store
+          } else {
+              console.log(`[WebSocket] Delayed cleanup skipped: Component likely remounted quickly or WS instance changed/already cleaned up.`);
+          }
+          // Mark the overall component as potentially unmounted after cleanup logic runs
+          // Note: This assumes the *final* cleanup corresponds to the actual component unmount.
+          // This might be slightly delayed.
+          if (!isMountedEffectRef.current) { // Check again in case remount happened during timeout
+             isComponentMountedRef.current = false;
+             console.log('[WebSocket] Component marked as unmounted after delayed cleanup.')
+          }
+
+      }, 150); // Small delay (e.g., 150ms) - adjust as needed
+
+      // This inner return function cleans up the setTimeout itself if the component
+      // truly unmounts (or the effect re-runs) *before* the 150ms delay finishes.
+      console.log('[WebSocket] Cleanup effect complete, clearing timeout if it exists.');
+      clearTimeout(timeoutId);
+    };
+  }, [sessionId, jwt, connect, deregisterWebSocketSend, registerWebSocketSend, sendMessage]); // Added register/sendMessage dependencies
+
+  // --- Cleanup on unmount (redundant with useEffect cleanup but belts and suspenders) ---
+  useEffect(() => {
+    // This effect ONLY runs once on mount and returns a cleanup function for final unmount
+    return () => {
+        console.log("[WebSocket] FINAL unmount effect triggered.");
+        isComponentMountedRef.current = false; // Mark definitively as unmounted
+        isMountedEffectRef.current = false; // Ensure effect flag is also false
+
+        // Clear any outstanding timers
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
+
+        const currentWs = wsRef.current;
+        if (currentWs) {
+            console.log("[WebSocket] Closing socket in FINAL unmount cleanup.");
+            // Remove listeners to prevent errors after unmount
+            currentWs.onclose = null;
+            currentWs.onerror = null;
+            currentWs.onmessage = null;
+            currentWs.onopen = null;
+            try { if (currentWs.readyState === WebSocket.OPEN) currentWs.close(1000, "Component unmounted definitively"); } catch (e) { console.warn("[WebSocket] Error closing socket in final unmount:", e); }
+            wsRef.current = null;
+        }
+        console.log('[WebSocket] Deregistering send function on FINAL unmount.');
+        deregisterWebSocketSend(); // Ensure deregistration happens
+    };
+  }, [deregisterWebSocketSend]); // Only needs store action dependency
+
+  return { connectionStatus, latency, sendMessage };
 } 

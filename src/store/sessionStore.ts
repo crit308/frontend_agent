@@ -27,6 +27,9 @@ export interface StructuredError {
   code?: string; // e.g., SESSION_LOAD_FAILED, AUTH_ERROR
 }
 
+// Export the LoadingState type as well
+export type { LoadingState };
+
 // Export the interface
 export interface SessionState {
   // Core data state
