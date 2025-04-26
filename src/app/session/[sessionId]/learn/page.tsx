@@ -12,7 +12,8 @@ import type {
   FeedbackResponse,
   MessageResponse,
   ErrorResponse,
-  TutorInteractionResponse
+  TutorInteractionResponse,
+  QuizFeedbackItem
 } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTutorStream } from '../../../../../lib/useTutorStream';
@@ -110,15 +111,11 @@ export default function LearnPage() {
     const interactionContent = currentInteractionContent as TutorInteractionResponse | null;
 
     if (!interactionContent) {
-      if (loadingState === 'interacting') {
-          return <LoadingSpinner message="Tutor is thinking..." />;
-      }
-      // If not loading, and no interaction content, show waiting message
-      return <p className="p-4 text-muted-foreground">Waiting for tutor...</p>;
+      console.warn("renderWhiteboardContent: interactionContent is null/undefined during render. LoadingState:", loadingState);
+      return loadingState === 'interacting' ? <LoadingSpinner message="Processing..." /> : null;
     }
 
-    // Type check and switch based on response_type property
-    if (typeof interactionContent !== 'object' || interactionContent === null || !('response_type' in interactionContent)) {
+    if (typeof interactionContent !== 'object' || !('response_type' in interactionContent)) {
         console.warn("Received content without response_type property:", interactionContent);
         return <p className="p-4 text-muted-foreground">Received unexpected content from tutor.</p>;
     }
@@ -147,14 +144,26 @@ export default function LearnPage() {
         );
       }
       case 'feedback': {
-        const { feedback } = interactionContent;
-        if (!feedback) {
-          console.error("LearnPage: Received invalid feedback data", interactionContent);
-          return <p className="text-red-600 p-4">Error: Received invalid feedback data format.</p>;
+        if (!interactionContent) {
+          console.error("LearnPage: interactionContent became null/undefined INSIDE feedback case!");
+          return <p>Error: Internal state inconsistency.</p>;
+        }
+
+        const feedbackData = interactionContent as FeedbackResponse;
+        if (!feedbackData || typeof feedbackData !== 'object') {
+          console.error("LearnPage: feedbackData is invalid inside feedback case.", { interactionContent });
+          return <p>Error: Invalid feedback data structure received.</p>;
+        }
+
+        const feedbackItem = (feedbackData as any).item as QuizFeedbackItem;
+
+        if (!feedbackItem) {
+          console.error("LearnPage: feedbackData is missing 'item' property inside 'feedback' case.", { interactionContent });
+          return <p className="text-red-600 p-4">Error: Received invalid feedback data format (missing 'item').</p>;
         }
         return (
           <FeedbackView
-            feedback={feedback}
+            feedback={feedbackItem}
             onNext={() => sendInteraction('next')}
           />
         );
@@ -174,7 +183,6 @@ export default function LearnPage() {
         );
       }
       default:
-        // Use type assertion for default case
         console.warn("Unknown response type in renderWhiteboardContent:", (interactionContent as any).response_type);
         return <p className="p-4 text-muted-foreground">Received unknown content type: {(interactionContent as any).response_type}</p>;
     }
