@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { SVG, extend as SVGextend, Element as SVGElement, Svg } from '@svgdotjs/svg.js';
-import { PanZoom } from '@svgdotjs/svg.panzoom.js';
 import { useSvgDrawing } from 'react-hooks-svgdrawing';
 import WhiteboardTools from './WhiteboardTools';
 import { useWhiteboardStore } from '@/store/whiteboardStore';
@@ -24,25 +23,27 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
   // hand the instance to the zustand store so other parts of the app (e.g.
   // useTutorStream) can draw chat bubbles/content.
   useEffect(() => {
-    // give the drawing library a tick to insert its <svg> element
-    const assignSvgInstance = () => {
-      if (!renderRef.current) return false;
+    let attempts = 0;
+    const maxAttempts = 40; // ~4 seconds at 100ms interval
+
+    const intervalId = setInterval(() => {
+      attempts += 1;
+      if (!renderRef.current) return;
       const svgEl = renderRef.current.querySelector('svg');
-      if (!svgEl) return false;
-      setSvgInstance(SVG(svgEl as any) as unknown as Svg);
-      return true;
-    };
+      if (svgEl) {
+        setSvgInstance(SVG(svgEl as unknown as SVGElement) as unknown as Svg);
+        clearInterval(intervalId);
+      } else if (attempts >= maxAttempts) {
+        console.warn('[Whiteboard] SVG element not detected after polling.');
+        clearInterval(intervalId);
+      }
+    }, 100);
 
-    if (!assignSvgInstance()) {
-      const timer = setTimeout(assignSvgInstance, 50);
-      return () => clearTimeout(timer);
-    }
-
-    // Cleanup – clear timeout and remove instance from store on unmount
     return () => {
+      clearInterval(intervalId);
       setSvgInstance(null);
     };
-  }, [setSvgInstance, renderRef]);
+  }, [setSvgInstance]); // renderRef.current accessed inside poller
 
   const handleToolChange = useCallback((tool: 'pen' | 'eraser') => {
     setCurrentTool(tool);
@@ -74,7 +75,8 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
 
   const handleSave = useCallback(() => {
     if (onSave) {
-      const svgData = drawActions.getSvgXML()?.outerHTML || '';
+      const svgElementOrString = drawActions.getSvgXML();
+      const svgData = typeof svgElementOrString === 'string' ? svgElementOrString : '';
       if (svgData) {
         onSave(svgData);
       } else {
