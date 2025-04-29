@@ -1,6 +1,6 @@
 import React from 'react';
 import { useRouter } from 'next/router';
-import TutorChat from '../components/TutorChat';
+import TutorChat from '@/components/TutorChat';
 
 export default function TutorPage() {
   const router = useRouter();

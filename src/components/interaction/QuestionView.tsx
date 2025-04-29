@@ -2,10 +2,10 @@ import React from 'react';
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import type { QuestionResponseData } from '@/lib/types'; // Assuming this type exists
+import type { QuestionResponse } from '@/lib/types'; // Use existing type
 
 interface QuestionViewProps {
-  question: QuestionResponseData; // Contains question text and options array
+  question: QuestionResponse; // Update type
   onAnswer: (selectedIndex: number) => void;
 }
 
@@ -24,13 +24,13 @@ const QuestionView: React.FC<QuestionViewProps> = ({ question, onAnswer }) => {
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-semibold">Question</h2>
-      <p>{question.text}</p>
+      <p>{question.question.question}</p>
       <RadioGroup
         value={selectedValue}
         onValueChange={setSelectedValue}
         className="space-y-2"
       >
-        {question.options.map((option, index) => (
+        {question.question.options.map((option: string, index: number) => (
           <div key={index} className="flex items-center space-x-2">
             <RadioGroupItem value={String(index)} id={getRadioItemId(index)} />
             <Label htmlFor={getRadioItemId(index)}>{option}</Label>

@@ -31,7 +31,7 @@ type SafeProgressProps = Omit<React.ComponentPropsWithoutRef<typeof Progress>, '
 export default function AnalysisPage() {
   const params = useParams();
   const router = useRouter();
-  const sessionId = typeof params.sessionId === 'string' ? params.sessionId : null;
+  const sessionId = typeof params?.sessionId === 'string' ? params.sessionId : null;
 
   const { sessionAnalysis, setSessionAnalysis, loadingState, setLoading, error, setError } = useSessionStore(state => ({
     sessionAnalysis: state.sessionAnalysis,
@@ -46,7 +46,7 @@ export default function AnalysisPage() {
 
   useEffect(() => {
     if (!sessionId) {
-      setError('Invalid session ID.');
+      setError({ message: 'Invalid session ID.' });
       setLocalLoading(false);
       return;
     }
@@ -72,7 +72,7 @@ export default function AnalysisPage() {
       } catch (err: any) {
         console.error("Failed to fetch session analysis:", err);
         const errorMessage = err.response?.data?.detail || err.message || 'Failed to load session analysis.';
-        setError(errorMessage);
+        setError({ message: errorMessage });
         setLoading('error', errorMessage);
       } finally {
         setLocalLoading(false);
@@ -98,7 +98,7 @@ export default function AnalysisPage() {
       <Alert variant="destructive">
         <AlertTriangle className="h-4 w-4" />
         <AlertTitle>Error Loading Analysis</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
+        <AlertDescription>{error.message}</AlertDescription>
         <Button onClick={() => router.push('/')} variant="link" className="mt-2">Go back to start</Button>
       </Alert>
     );
