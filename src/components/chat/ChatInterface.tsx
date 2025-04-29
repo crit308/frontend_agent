@@ -6,6 +6,8 @@ import ChatMessage from './ChatMessage';
 import { ScrollArea } from '../ui/scroll-area';
 import { useSessionStore } from '@/store/sessionStore'; // Import store
 import { useShallow } from 'zustand/react/shallow'; // Import shallow
+import type { MessageResponse } from '@/lib/types'; // Import MessageResponse type
+import { v4 as uuidv4 } from 'uuid'; // For generating unique message IDs
 
 interface Message {
   id: string;
@@ -16,17 +18,22 @@ interface Message {
 
 const ChatInterface = () => {
   const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<Message[]>([
+    { id: uuidv4(), sender: 'ai', text: 'Welcome! Ask me anything about the document.' }
+  ]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   const {
     sendInteraction,
     loadingState,
-    connectionStatus
+    connectionStatus,
+    currentInteractionContent
   } = useSessionStore(
     useShallow((state) => ({
       sendInteraction: state.sendInteraction,
       loadingState: state.loadingState,
       connectionStatus: state.connectionStatus,
+      currentInteractionContent: state.currentInteractionContent
     }))
   );
 
@@ -47,6 +54,13 @@ const ChatInterface = () => {
     const trimmedInput = input.trim();
     if (!trimmedInput || isInputDisabled) return;
 
+    const userMessage: Message = {
+      id: uuidv4(),
+      sender: 'user',
+      text: trimmedInput,
+    };
+    setMessages(prev => [...prev, userMessage]);
+
     sendInteraction('user_message', { text: trimmedInput });
     setInput('');
     scrollToBottom();
@@ -59,20 +73,33 @@ const ChatInterface = () => {
     }
   };
 
-  const messagesToDisplay: Message[] = [
-      { id: 'placeholder-1', sender: 'ai', text: 'Chat history display is not implemented yet.' },
-      { id: 'placeholder-2', sender: 'ai', text: 'You can send messages using the input below.' }
-  ];
+  useEffect(() => {
+    if (
+      currentInteractionContent &&
+      currentInteractionContent.response_type === 'message'
+    ) {
+      const aiMessageContent = currentInteractionContent as MessageResponse;
+      if (!messages.some(msg => msg.sender === 'ai' && msg.text === aiMessageContent.text)) {
+        const aiMessage: Message = {
+          id: uuidv4(),
+          sender: 'ai',
+          text: aiMessageContent.text,
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        scrollToBottom();
+      }
+    }
+  }, [currentInteractionContent]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messagesToDisplay]);
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-full bg-background dark:bg-gray-950">
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4">
-          {messagesToDisplay.map((message) => (
+          {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
         </div>

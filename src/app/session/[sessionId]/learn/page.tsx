@@ -27,6 +27,8 @@ import ExplanationView from '@/components/views/ExplanationView';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/components/ui/use-toast";
 import ChatInterface from '@/components/chat/ChatInterface';
+import Whiteboard from '@/components/whiteboard/Whiteboard';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -236,43 +238,56 @@ export default function LearnPage() {
     <>
       <div className="flex h-[calc(100vh-8rem)] border rounded-lg overflow-hidden">
 
-        <div className="w-1/3 border-r flex flex-col h-full bg-background">
-          {missingCredentials || isAuthError ? (
-             <div className="p-4 text-center text-muted-foreground">Chat unavailable</div>
-          ) : sessionId && jwt ? (
-            <>
-              <ChatInterface />
-              <div className="p-2 border-t">
-                <Button
-                  onClick={handleEndSession}
-                  disabled={isEndingSession || loadingState === 'interacting' || sessionEndedConfirmed}
-                  variant="destructive"
-                  className="w-full"
-                >
-                  {isEndingSession ? 'Ending Session...' : 'End Session'}
-                </Button>
-              </div>
-            </>
-          ) : (
-             <div className="p-4 flex items-center justify-center h-full">
-                <LoadingSpinner message="Loading Chat..." />
-             </div>
-          )}
+        {/* Left Panel: Tutor Output & Session Control */}
+        <div className="w-1/3 border-r flex flex-col h-full bg-background overflow-y-auto">
+          <div className="flex-1 p-4">
+            {isLoading ? (
+              <LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} />
+            ) : isErrorState ? (
+              <Alert variant="destructive" className="max-w-md">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>{errorTitle}</AlertTitle>
+                <AlertDescription>{errorMessage}</AlertDescription>
+              </Alert>
+            ) : missingCredentials ? (
+              <p className="text-red-500">Error: Session ID or authentication token is missing.</p>
+            ) : (
+              <div className="w-full h-full">{renderWhiteboardContent()}</div>
+            )}
+          </div>
+          <div className="p-2 border-t">
+            <Button
+              onClick={handleEndSession}
+              disabled={isEndingSession || loadingState === 'interacting' || sessionEndedConfirmed}
+              variant="destructive"
+              className="w-full"
+            >
+              {isEndingSession ? 'Ending Session...' : 'End Session'}
+            </Button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 h-full flex items-center justify-center">
-          {isLoading ? (
-             <LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} />
-          ) : isErrorState ? (
-            <Alert variant="destructive" className="max-w-md">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>{errorTitle}</AlertTitle>
-              <AlertDescription>{errorMessage}</AlertDescription>
-            </Alert>
-          ) : missingCredentials ? (
-            <p className="text-red-500">Error: Session ID or authentication token is missing.</p>
-          ) : (
-            <div className="w-full h-full">{renderWhiteboardContent()}</div>
+        {/* Right Panel: Tabs for Chat and Whiteboard */}
+        <div className="flex-1 flex flex-col h-full">
+          {missingCredentials || isAuthError ? (
+             <div className="p-4 flex items-center justify-center h-full text-muted-foreground">Interaction area unavailable</div>
+          ) : sessionId && jwt ? (
+             <Tabs defaultValue="chat" className="flex-1 flex flex-col">
+               <TabsList className="w-full justify-start rounded-none border-b">
+                 <TabsTrigger value="chat">Chat</TabsTrigger>
+                 <TabsTrigger value="whiteboard">Whiteboard</TabsTrigger>
+               </TabsList>
+               <TabsContent value="chat" className="flex-1 overflow-y-auto">
+                 <ChatInterface />
+               </TabsContent>
+               <TabsContent value="whiteboard" className="flex-1 overflow-y-auto p-4">
+                 <Whiteboard />
+               </TabsContent>
+             </Tabs>
+           ) : (
+             <div className="p-4 flex items-center justify-center h-full">
+                <LoadingSpinner message="Loading Interaction Area..." />
+             </div>
           )}
         </div>
 
