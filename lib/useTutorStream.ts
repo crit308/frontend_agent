@@ -11,7 +11,8 @@ import {
   ErrorResponse,
   ExplanationResponse,
   FeedbackResponse,
-  type TutorInteractionResponse
+  type TutorInteractionResponse,
+  MessageResponse
 } from '@/lib/types';
 
 // Define more specific connection status types
@@ -271,6 +272,7 @@ export function useTutorStream(
                 case 'explanation':
                     const explanationData = dataPayload as ExplanationResponse;
                     if (explanationData?.text) {
+                        console.log('[WS] Adding content block (explanation):', explanationData.text);
                         addContentBlock(explanationData.text, 'explanation');
                     } else {
                          console.warn("[WS] Received 'explanation' type without valid text data:", dataPayload);
@@ -284,10 +286,11 @@ export function useTutorStream(
                     if (questionData?.question?.question) {
                         // Combine question text and options (options are strings)
                         const optionsString = questionData.question.options?.map((opt, i) => `${i + 1}. ${opt}`).join('\n') || '';
-                        const fullQuestionText = `${questionData.question.question}\n\n${optionsString}`;
-                        addContentBlock(fullQuestionText, 'question');
+                        const formattedText = `Question:\n${questionData.question.question}\n\nOptions:\n${optionsString}`;
+                        console.log('[WS] Adding content block (question):', formattedText);
+                        addContentBlock(formattedText, 'question');
                     } else {
-                         console.warn("[WS] Received 'question' type without valid question text:", dataPayload);
+                         console.warn("[WS] Received 'question' type without valid question data:", dataPayload);
                          return prevState;
                     }
                     update.loadingState = 'idle';
@@ -295,56 +298,48 @@ export function useTutorStream(
 
                 case 'feedback':
                     const feedbackData = dataPayload as FeedbackResponse;
-                    // Access feedback text via feedbackData.feedback.explanation or other fields
-                    let feedbackText = 'Feedback received.'; // Default
-                    if (feedbackData?.feedback?.explanation) {
-                        feedbackText = `Feedback: ${feedbackData.feedback.explanation}`;
-                        if (feedbackData.feedback.improvement_suggestion) {
-                           feedbackText += `\nSuggestion: ${feedbackData.feedback.improvement_suggestion}`;
-                        }
-                    } else if (feedbackData?.feedback?.question_text) { // Fallback using question + answer
-                        feedbackText = `Regarding: "${feedbackData.feedback.question_text}"\nYour answer (${feedbackData.feedback.user_selected_option}) was ${feedbackData.feedback.is_correct ? 'correct' : 'incorrect'}. Correct: ${feedbackData.feedback.correct_option}`;
-                    } else if (typeof feedbackData === 'string') { // Further fallback if data is just a string (unlikely based on types)
-                        feedbackText = feedbackData;
+                    // Check the nested 'feedback' property directly
+                    if (feedbackData?.feedback) {
+                        const fb = feedbackData.feedback;
+                        const correctness = fb.is_correct ? 'Correct!' : 'Incorrect';
+                        // Ensure options are strings before accessing them
+                        const userAnswer = typeof fb.user_selected_option === 'string' ? `"${fb.user_selected_option}"` : '(No selection)';
+                        const correctAnswer = typeof fb.correct_option === 'string' ? ` (Correct: "${fb.correct_option}")` : '';
+                        const answerInfo = fb.is_correct ? `Your answer: ${userAnswer}` : `Your answer: ${userAnswer}${correctAnswer}`;
+                        const explanation = fb.explanation ? `\nExplanation: ${fb.explanation}` : '';
+                        const suggestion = fb.improvement_suggestion ? `\nSuggestion: ${fb.improvement_suggestion}` : '';
+                        const formattedText = `Feedback (${correctness})\nRegarding: "${fb.question_text}"\n${answerInfo}${explanation}${suggestion}`;
+                        console.log('[WS] Adding content block (feedback):', formattedText);
+                        addContentBlock(formattedText, 'feedback');
+                    } else {
+                        console.warn("[WS] Received 'feedback' type without valid feedback data:", dataPayload);
                     }
-                    addContentBlock(feedbackText, 'feedback');
                     update.loadingState = 'idle';
                     break;
 
                 case 'message':
-                    // Append to messages array
-                    const messageContent = dataPayload as { text: string }; // Assuming MessageResponse shape
-                    if (typeof messageContent?.text === 'string') {
-                        const aiMessage: ChatMessage = {
-                            id: Date.now().toString() + '-ai', // Simple unique ID
-                            role: 'assistant',
-                            content: messageContent.text,
-                        };
-                        newMessages.push(aiMessage);
-                        update.messages = newMessages; // Update the messages array
-                        // Keep currentInteractionContent null for messages
-
-                        // Also add bubble to whiteboard
+                    const messageContent = dataPayload as MessageResponse;
+                    if (messageContent?.text) {
+                        console.log('[WS] Adding chat bubble (assistant):', messageContent.text);
                         addChatBubble(messageContent.text, { role: 'assistant' });
-
                     } else {
-                        console.warn("[WS] Received 'message' type without valid text data:", dataPayload);
-                        // Don't update state if data is invalid
-                        return prevState;
+                        console.warn("[WS] Received 'message' type without valid text:", dataPayload);
                     }
-                    update.loadingState = 'idle';
                     break;
 
                 case 'error':
                     const errorPayload = dataPayload as ErrorResponse;
-                    console.error(`[WS] Tutor Error Response: Code=${errorPayload.error_code}, Msg=${errorPayload.message}`);
+                    console.error('[WS] Received error:', errorPayload.message, errorPayload.details);
+                    // Update error state in session store
                     newError = { message: errorPayload.message, code: errorPayload.error_code };
                     update.error = newError;
                     update.loadingState = 'error';
-                    // Optionally, add error message to chat?
-                    // const errorMessage: ChatMessage = { id: Date.now().toString(), role: 'assistant', content: `Error: ${errorPayload.message}` };
-                    // newMessages.push(errorMessage);
-                    // update.messages = newMessages;
+                    toast({
+                        title: "Error from Tutor",
+                        description: errorPayload.message,
+                        variant: "destructive",
+                    });
+                    // Do not add to whiteboard for now
                     break;
 
                 case 'session_ended':

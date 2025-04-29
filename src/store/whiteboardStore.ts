@@ -46,6 +46,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set, get) => ({
 
       const pending = get()._pendingBubbles;
       if (pending.length) {
+        console.log(`[Whiteboard Store] Processing ${pending.length} pending bubbles.`); // Log pending processing
         pending.forEach(item => {
           get().addChatBubble(item.text, item.options);
         });
@@ -54,6 +55,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set, get) => ({
 
       const pendingBlocks = get()._pendingBlocks;
       if (pendingBlocks.length) {
+        console.log(`[Whiteboard Store] Processing ${pendingBlocks.length} pending content blocks.`); // Log pending processing
         pendingBlocks.forEach(item => {
           get().addContentBlock(item.text, item.type as any, item.options);
         });
@@ -89,7 +91,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set, get) => ({
     if (!svg) {
       // SVG not ready yet – queue action and return
       get()._pendingBubbles.push({ text, options: { ...options, role: options.role || 'assistant' } });
-      console.warn('Whiteboard Store: SVG instance not available. Queuing bubble until ready.');
+      console.warn('Whiteboard Store: SVG instance not available. Queuing bubble until ready.'); // Already logs queuing
       return;
     }
     
@@ -140,6 +142,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set, get) => ({
     // Add a rectangle background based on text size
     const rectWidth = textBBox.width + 2 * bubblePadding;
     const rectHeight = textBBox.height + 2 * bubblePadding;
+    console.log(`[Whiteboard Store] Bubble bbox calculated: w=${rectWidth.toFixed(2)}, h=${rectHeight.toFixed(2)}`); // Log bbox
     const rect = group.rect(rectWidth, rectHeight)
       .fill(role === 'user' ? '#007bff' : '#f0f0f0') // User blue, Assistant light gray
       .radius(10);
@@ -166,7 +169,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set, get) => ({
     if (!svg) {
       // Queue and return
       get()._pendingBlocks.push({ text, type, options });
-      console.warn('Whiteboard Store: SVG instance not available. Queuing content block until ready.');
+      console.warn('Whiteboard Store: SVG instance not available. Queuing content block until ready.'); // Already logs queuing
       return;
     }
 
@@ -209,6 +212,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set, get) => ({
     // Add background rectangle
     const rectWidth = contentBlockWidth;
     const rectHeight = textBBox.height + 2 * contentBlockPadding;
+    console.log(`[Whiteboard Store] Content block bbox calculated: w=${rectWidth.toFixed(2)}, h=${rectHeight.toFixed(2)}`); // Log bbox
     const rect = group.rect(rectWidth, rectHeight)
       .fill('#ffffff') // White background
       .stroke({ color: '#cccccc', width: 1 }) // Light border

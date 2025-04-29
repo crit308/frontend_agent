@@ -10,7 +10,10 @@ interface WhiteboardProps {
   onSave?: (svgData: string) => void;
 }
 
-const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
+// Wrap the component definition with React.memo
+const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ initialSvg, onSave }) => {
+  console.log("[Whiteboard] Rendering"); // Add log for render verification
+
   const [renderRef, drawActions] = useSvgDrawing();
   const [currentTool, setCurrentTool] = useState<'pen' | 'eraser'>('pen');
   const [strokeWidth, setStrokeWidth] = useState(3);
@@ -23,14 +26,26 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
   // hand the instance to the zustand store so other parts of the app (e.g.
   // useTutorStream) can draw chat bubbles/content.
   useEffect(() => {
+    console.log("[Whiteboard] Initial mount effect running."); // Log mount effect
     let attempts = 0;
     const maxAttempts = 40; // ~4 seconds at 100ms interval
 
     const intervalId = setInterval(() => {
       attempts += 1;
-      if (!renderRef.current) return;
-      const svgEl = renderRef.current.querySelector('svg');
+      // Check renderRef.current inside the interval
+      const currentRef = renderRef.current;
+      if (!currentRef) {
+          console.log(`[Whiteboard] Polling attempt ${attempts}: renderRef.current is null`);
+          if (attempts >= maxAttempts) {
+             console.warn('[Whiteboard] SVG polling timed out (renderRef unavailable).');
+             clearInterval(intervalId);
+          }
+          return;
+      }
+
+      const svgEl = currentRef.querySelector('svg');
       if (svgEl) {
+        console.log("[Whiteboard] SVG element found via polling, wrapping with SVG.js"); // Updated log
         setSvgInstance(SVG(svgEl as unknown as SVGElement) as unknown as Svg);
         clearInterval(intervalId);
       } else if (attempts >= maxAttempts) {
@@ -39,11 +54,14 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
       }
     }, 100);
 
+    // Cleanup function for the effect itself
     return () => {
+      console.log("[Whiteboard] Unmount effect running, clearing SVG instance from store."); // Log unmount
       clearInterval(intervalId);
       setSvgInstance(null);
     };
-  }, [setSvgInstance]); // renderRef.current accessed inside poller
+    // Correct dependencies: renderRef and setSvgInstance
+  }, [renderRef, setSvgInstance]);
 
   const handleToolChange = useCallback((tool: 'pen' | 'eraser') => {
     setCurrentTool(tool);
@@ -97,9 +115,9 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
         onClear={handleClear}
         onSave={onSave ? handleSave : undefined}
       />
-      <div ref={renderRef} className="flex-grow relative overflow-hidden cursor-crosshair w-full h-full touch-none" />
+      <div ref={renderRef} className="flex-grow relative overflow-hidden cursor-crosshair w-full h-full touch-none bg-gray-100 dark:bg-gray-800" /> {/* Added background */} 
     </div>
   );
-};
+}); // End of React.memo wrap
 
 export default Whiteboard; 
