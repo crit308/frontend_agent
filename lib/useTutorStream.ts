@@ -248,12 +248,29 @@ export function useTutorStream(
             // Determine error state and loading state based on content type
             let newError: StructuredError | null = null; // Use StructuredError type
             let newLoadingState: LoadingState = 'idle'; // Default to idle after response
+            let sessionEnded = false; // Flag for session end confirmation
 
             if (contentType === 'error' && dataPayload && typeof dataPayload === 'object' && 'response_type' in dataPayload && dataPayload.response_type === 'error') {
                 const errorData = dataPayload as ErrorResponse;
                 newError = { message: errorData.message, code: errorData.error_code || 'BACKEND_ERROR' }; // Keep object format
                 newLoadingState = 'idle'; // Even on backend error, interaction flow might stop, FE is idle/showing error
                 console.error(`[WS] Received backend error: ${newError.message} (Code: ${newError.code})`);
+            }
+
+            // Check for session end confirmation message
+            if (
+                contentType === 'message' &&
+                dataPayload &&
+                typeof dataPayload === 'object' &&
+                'response_type' in dataPayload &&
+                dataPayload.response_type === 'message' &&
+                'text' in dataPayload &&
+                dataPayload.text === 'SESSION_ENDED_CONFIRMED'
+            ) {
+                console.log("[WS] Received session ended confirmation.");
+                sessionEnded = true;
+                // We might want to keep loadingState as 'idle' or something specific
+                newLoadingState = 'idle'; 
             }
 
             // Prepare the final state update, clearing previous errors if this is not an error message
@@ -263,6 +280,7 @@ export function useTutorStream(
                 loadingState: newLoadingState,
                 loadingMessage: '', // Clear loading message
                 error: newError !== null ? newError : null, // Set new error, or clear existing non-connection errors
+                sessionEndedConfirmed: sessionEnded || prevState.sessionEndedConfirmed, // Set confirmed flag
                 // Handle question storage specifically
                 currentQuizQuestion: (contentType === 'question' && dataPayload && typeof dataPayload === 'object' && 'question' in dataPayload)
                                     ? (dataPayload as QuestionResponse).question

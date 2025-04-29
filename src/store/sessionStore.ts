@@ -57,6 +57,7 @@ export interface SessionState {
   currentQuizQuestion: QuizQuestion | null;
   isLessonComplete: boolean;
   focusObjective: FocusObjective | null;
+  sessionEndedConfirmed: boolean;
 
   // Actions
   setSessionId: (sessionId: string) => void;
@@ -76,7 +77,7 @@ export interface SessionState {
   deregisterWebSocketSend: () => void;
 
   // --- NEW Actions ---
-  sendInteraction: (type: 'start' | 'next' | 'answer' | 'user_message' | 'summary' | 'previous', data?: Record<string, any>) => Promise<void>;
+  sendInteraction: (type: 'start' | 'next' | 'answer' | 'user_message' | 'summary' | 'previous' | 'end_session', data?: Record<string, any>) => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -105,6 +106,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   currentQuizQuestion: null,
   isLessonComplete: false,
   focusObjective: null,
+  sessionEndedConfirmed: false,
 
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
@@ -184,5 +186,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     focusObjective: null,
     webSocketSendFunction: null,
     connectionStatus: 'idle',
+    sessionEndedConfirmed: false,
   }),
 }));

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import ExplanationViewComponent from '@/components/interaction/ExplanationView';
 import QuestionView from '@/components/views/QuestionView';
@@ -25,17 +25,23 @@ import { useShallow } from 'zustand/react/shallow';
 import type { SessionState } from '@/store/sessionStore';
 import type { StructuredError } from '@/store/sessionStore';
 import ExplanationView from '@/components/views/ExplanationView';
+import { Button } from '@/components/ui/button';
+import { useToast } from "@/components/ui/use-toast";
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
 
   const { sessionId } = useParams() as { sessionId?: string };
+  const router = useRouter();
+  const { toast } = useToast();
+  const [isEndingSession, setIsEndingSession] = useState(false);
   const {
     currentInteractionContent,
     loadingState,
     error,
     connectionStatus,
     sendInteraction,
+    sessionEndedConfirmed,
   } = useSessionStore(
     useShallow((state: SessionState) => ({
       currentInteractionContent: state.currentInteractionContent,
@@ -43,6 +49,7 @@ export default function LearnPage() {
       error: state.error,
       connectionStatus: state.connectionStatus,
       sendInteraction: state.sendInteraction,
+      sessionEndedConfirmed: state.sessionEndedConfirmed,
     }))
   );
 
@@ -77,6 +84,25 @@ export default function LearnPage() {
     }
   }, [currentInteractionContent, sendInteraction]);
 
+  // Effect to handle session ended confirmation and redirect
+  useEffect(() => {
+    if (sessionEndedConfirmed) {
+      console.log('[LearnPage] Session end confirmed by backend.');
+      toast({
+        title: "Session Ended",
+        description: "Analysis is processing in the background.",
+        duration: 5000, // Show toast for 5 seconds
+      });
+
+      // Redirect after a delay
+      const redirectTimer = setTimeout(() => {
+        router.push('/'); // Redirect to home page
+      }, 3000); // 3 second delay before redirect
+
+      return () => clearTimeout(redirectTimer); // Cleanup timer on unmount
+    }
+  }, [sessionEndedConfirmed, router, toast]);
+
   console.log('[LearnPage] Rendering. InteractionContent:', currentInteractionContent, 'Status:', connectionStatus, 'LoadingState:', loadingState, 'AuthLoading:', authLoading);
 
   // Determine status color based on connectionStatus
@@ -104,6 +130,24 @@ export default function LearnPage() {
   const errorDetails = error as StructuredError | null;
   const errorTitle = isAuthError ? "Authentication Error" : "Connection Error";
   const errorMessage = errorDetails?.message || (isAuthError ? "Authentication failed. Please log in again." : "An unexpected error occurred.");
+
+  // Handler for ending the session
+  const handleEndSession = async () => {
+    if (!sessionId) return;
+    setIsEndingSession(true);
+    try {
+      await sendInteraction('end_session', { session_id: sessionId });
+      console.log('Session end interaction sent.');
+    } catch (error) {
+      console.error('Failed to send end session interaction:', error);
+      toast({
+        title: "Error Ending Session",
+        description: (error as Error)?.message || "Could not send end session request.",
+        variant: "destructive",
+      });
+      setIsEndingSession(false);
+    }
+  };
 
   const renderWhiteboardContent = () => {
     // Loading/Error/Missing states handled outside this function now
@@ -196,7 +240,19 @@ export default function LearnPage() {
           {missingCredentials || isAuthError ? (
              <div className="p-4 text-center text-muted-foreground">Chat unavailable</div>
           ) : sessionId && jwt ? (
-           <TutorChat sessionId={sessionId} jwt={jwt} />
+            <>
+              <TutorChat sessionId={sessionId} jwt={jwt} />
+              <div className="p-2 border-t">
+                <Button
+                  onClick={handleEndSession}
+                  disabled={isEndingSession || loadingState === 'interacting' || sessionEndedConfirmed}
+                  variant="destructive"
+                  className="w-full"
+                >
+                  {isEndingSession ? 'Ending Session...' : 'End Session'}
+                </Button>
+              </div>
+            </>
           ) : (
              <div className="p-4 flex items-center justify-center h-full">
                 <LoadingSpinner message="Loading Chat..." />
