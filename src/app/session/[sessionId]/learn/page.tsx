@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import ExplanationViewComponent from '@/components/interaction/ExplanationView';
@@ -26,9 +26,10 @@ import type { StructuredError } from '@/store/sessionStore';
 import ExplanationView from '@/components/views/ExplanationView';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/components/ui/use-toast";
-import ChatInterface from '@/components/chat/ChatInterface';
 import Whiteboard from '@/components/whiteboard/Whiteboard';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from '@/components/ui/textarea';
+import { Send } from 'lucide-react';
+import { useWhiteboardStore } from '@/store/whiteboardStore';
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -37,6 +38,7 @@ export default function LearnPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [isEndingSession, setIsEndingSession] = useState(false);
+  const [userInput, setUserInput] = useState('');
   const {
     currentInteractionContent,
     loadingState,
@@ -62,6 +64,9 @@ export default function LearnPage() {
   }), []);
 
   const { latency } = useTutorStream(sessionId || '', jwt, streamHandlers);
+
+  // Get whiteboard action
+  const addChatBubble = useWhiteboardStore(state => state.addChatBubble);
 
   useEffect(() => {
     return () => {
@@ -151,152 +156,93 @@ export default function LearnPage() {
     }
   };
 
+  // --- Input Bar Logic ---
+  const isInputDisabled = connectionStatus !== 'connected' || loadingState === 'interacting';
+
+  const handleSendMessage = useCallback(async () => {
+    const trimmedInput = userInput.trim();
+    if (!trimmedInput || isInputDisabled) return;
+
+    console.log('[LearnPage] Sending user message:', trimmedInput);
+    sendInteraction('user_message', { text: trimmedInput });
+    setUserInput('');
+
+    // Add user message bubble to whiteboard
+    addChatBubble(trimmedInput, { role: 'user' });
+
+    // In PHASE 2, we'll also call boardAPI.addChatBubble(trimmedInput) here
+  }, [userInput, isInputDisabled, sendInteraction, addChatBubble]);
+
+  const handleKeyPress = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage();
+    }
+  }, [handleSendMessage]);
+  // --- End Input Bar Logic ---
+
   const renderWhiteboardContent = () => {
-    // Loading/Error/Missing states handled outside this function now
-
-    const interactionContent = currentInteractionContent as TutorInteractionResponse | null;
-
-    if (!interactionContent) {
-      console.warn("renderWhiteboardContent: interactionContent is null/undefined during render. LoadingState:", loadingState);
-      return loadingState === 'interacting' ? <LoadingSpinner message="Processing..." /> : null;
-    }
-
-    if (typeof interactionContent !== 'object' || !('response_type' in interactionContent)) {
-        console.warn("Received content without response_type property:", interactionContent);
-        return <p className="p-4 text-muted-foreground">Received unexpected content from tutor.</p>;
-    }
-
-    switch (interactionContent.response_type) {
-      case 'explanation': {
-        const explanationContent = interactionContent as ExplanationResponse;
-        return (
-          <ExplanationView
-            content={explanationContent}
-            showNextButton={!explanationContent.is_last_segment}
-            onNext={() => sendInteraction('next')}
-          />
-        );
-      }
-      case 'question': {
-        const questionContent = interactionContent as QuestionResponse;
-        if (!questionContent.question || !questionContent.question.options) {
-          console.error("LearnPage: Received invalid question data structure", interactionContent);
-          return <p className="text-red-600 p-4">Error: Received invalid question data format.</p>;
-        }
-        return (
-          <QuestionView
-            content={questionContent}
-          />
-        );
-      }
-      case 'feedback': {
-        if (!interactionContent) {
-          console.error("LearnPage: interactionContent became null/undefined INSIDE feedback case!");
-          return <p>Error: Internal state inconsistency.</p>;
-        }
-
-        const feedbackData = interactionContent as FeedbackResponse;
-        if (!feedbackData || typeof feedbackData !== 'object') {
-          console.error("LearnPage: feedbackData is invalid inside feedback case.", { interactionContent });
-          return <p>Error: Invalid feedback data structure received.</p>;
-        }
-
-        const feedbackItem = (feedbackData as any).item as QuizFeedbackItem;
-
-        if (!feedbackItem) {
-          console.error("LearnPage: feedbackData is missing 'item' property inside 'feedback' case.", { interactionContent });
-          return <p className="text-red-600 p-4">Error: Received invalid feedback data format (missing 'item').</p>;
-        }
-        return (
-          <FeedbackView
-            feedback={feedbackItem}
-            onNext={() => sendInteraction('next')}
-          />
-        );
-      }
-      case 'message': {
-        const { text } = interactionContent;
-        return <MessageView text={text} />;
-      }
-      case 'error': {
-        const { message, error_code } = interactionContent;
-        return (
-          <Alert variant="destructive" className="m-4">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Tutor Error ({error_code || 'Unknown'})</AlertTitle>
-            <AlertDescription>{message}</AlertDescription>
-          </Alert>
-        );
-      }
-      default:
-        console.warn("Unknown response type in renderWhiteboardContent:", (interactionContent as any).response_type);
-        return <p className="p-4 text-muted-foreground">Received unknown content type: {(interactionContent as any).response_type}</p>;
-    }
+    // This function now just returns the content to be potentially rendered *onto* the whiteboard later
+    // For now, it's unused as the whiteboard takes the full screen.
+    // In PHASE 2/3, this logic might be adapted to feed content *to* the whiteboard API.
+    return null; // Placeholder - logic will move
   };
 
+  // --- Loading and Error States Handling ---
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-screen w-screen"><LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} /></div>;
+  }
+
+  if (isErrorState || missingCredentials) {
+    const title = missingCredentials ? "Missing Information" : errorTitle;
+    const description = missingCredentials ? "Session ID or authentication token is missing." : errorMessage;
+    return (
+      <div className="flex items-center justify-center h-screen w-screen p-4">
+        <Alert variant="destructive" className="max-w-md">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>{title}</AlertTitle>
+          <AlertDescription>{description}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+  // --- End Loading and Error States ---
+
   return (
-    <>
-      <div className="flex h-[calc(100vh-8rem)] border rounded-lg overflow-hidden">
-
-        {/* Left Panel: Tutor Output & Session Control */}
-        <div className="w-1/3 border-r flex flex-col h-full bg-background overflow-y-auto">
-          <div className="flex-1 p-4">
-            {isLoading ? (
-              <LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} />
-            ) : isErrorState ? (
-              <Alert variant="destructive" className="max-w-md">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>{errorTitle}</AlertTitle>
-                <AlertDescription>{errorMessage}</AlertDescription>
-              </Alert>
-            ) : missingCredentials ? (
-              <p className="text-red-500">Error: Session ID or authentication token is missing.</p>
-            ) : (
-              <div className="w-full h-full">{renderWhiteboardContent()}</div>
-            )}
-          </div>
-          <div className="p-2 border-t">
-            <Button
-              onClick={handleEndSession}
-              disabled={isEndingSession || loadingState === 'interacting' || sessionEndedConfirmed}
-              variant="destructive"
-              className="w-full"
-            >
-              {isEndingSession ? 'Ending Session...' : 'End Session'}
-            </Button>
-          </div>
-        </div>
-
-        {/* Right Panel: Tabs for Chat and Whiteboard */}
-        <div className="flex-1 flex flex-col h-full">
-          {missingCredentials || isAuthError ? (
-             <div className="p-4 flex items-center justify-center h-full text-muted-foreground">Interaction area unavailable</div>
-          ) : sessionId && jwt ? (
-             <Tabs defaultValue="chat" className="flex-1 flex flex-col">
-               <TabsList className="w-full justify-start rounded-none border-b">
-                 <TabsTrigger value="chat">Chat</TabsTrigger>
-                 <TabsTrigger value="whiteboard">Whiteboard</TabsTrigger>
-               </TabsList>
-               <TabsContent value="chat" className="flex-1 overflow-y-auto">
-                 <ChatInterface />
-               </TabsContent>
-               <TabsContent value="whiteboard" className="flex-1 overflow-y-auto p-4">
-                 <Whiteboard />
-               </TabsContent>
-             </Tabs>
-           ) : (
-             <div className="p-4 flex items-center justify-center h-full">
-                <LoadingSpinner message="Loading Interaction Area..." />
-             </div>
-          )}
-        </div>
-
+    // Main container is now just the whiteboard + the input bar
+    <div className="relative h-full w-full flex flex-col bg-background">
+      {/* Whiteboard takes up all space except the input bar */}
+      <div className="flex-1 overflow-hidden"> {/* Added overflow-hidden */}
+        <Whiteboard /> {/* Pass necessary props if needed later */}
       </div>
 
-       <div style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 1000, background: 'rgba(30,41,59,0.85)', color: '#fff', borderRadius: 8, padding: '10px 18px', fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-        <div>WS Status: <span style={{ color: statusColor }}>{connectionStatus.toUpperCase()}</span></div>
-         <div>WS Latency: {latency !== null ? `${latency} ms` : '—'}</div>
-       </div>
-    </>
+      {/* Input Bar at the bottom */}
+      <div className="absolute bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-sm border-t border-border">
+        <div className="max-w-3xl mx-auto flex items-center gap-2">
+          <Textarea
+            placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
+            value={userInput}
+            onChange={(e) => setUserInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            className="flex-1 resize-none shadow-md" // Added shadow
+            rows={1}
+            disabled={isInputDisabled}
+          />
+          <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-md"> {/* Added shadow */}
+            <Send className="h-4 w-4" />
+            <span className="sr-only">Send</span>
+          </Button>
+          {/* Optional: Add End Session Button here? */}
+          {/* <Button variant="outline" onClick={handleEndSession} disabled={isEndingSession}>End Session</Button> */}
+        </div>
+      </div>
+
+      {/* Render status indicators - maybe overlay top-right? */}
+      {/* Example: */}
+      {/* <div className="absolute top-2 right-2 flex items-center gap-2 p-1 bg-gray-700/50 text-white text-xs rounded">
+        <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor, display: 'inline-block' }}></span>
+        {connectionStatus} {latency !== null ? `(${latency}ms)` : ''}
+      </div> */}
+    </div>
   );
 } 

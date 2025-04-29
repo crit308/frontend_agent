@@ -27,6 +27,14 @@ export interface StructuredError {
   code?: string; // e.g., SESSION_LOAD_FAILED, AUTH_ERROR
 }
 
+// Define a unified message type for the chat history
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant'; // Use role instead of sender
+  content: string; // Use content instead of text
+  isLoading?: boolean; // Optional loading state
+}
+
 // Export the LoadingState type as well
 export type { LoadingState };
 
@@ -58,6 +66,9 @@ export interface SessionState {
   isLessonComplete: boolean;
   focusObjective: FocusObjective | null;
   sessionEndedConfirmed: boolean;
+
+  // NEW: Array to hold chat history
+  messages: ChatMessage[];
 
   // Actions
   setSessionId: (sessionId: string) => void;
@@ -108,6 +119,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   focusObjective: null,
   sessionEndedConfirmed: false,
 
+  // NEW: Initialize messages array
+  messages: [],
+
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setSelectedFolderId: (folderId) => set({ folderId }),
@@ -142,6 +156,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       try {
           // Construct the payload based on type
           let payload;
+          let userMessage: ChatMessage | null = null;
           if (type === 'user_message') {
               // Ensure data exists and has a 'text' property
               const text = data?.text;
@@ -151,12 +166,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   return;
               }
               payload = { type: type, data: { text: text } };
+              // Create user message object to add to state
+              userMessage = {
+                id: Date.now().toString(), // Simple ID for now
+                role: 'user',
+                content: text,
+              };
           } else {
               payload = { type: type, data: data || {} };
           }
           
           console.log("Store: Calling registered WebSocket send function with payload:", payload);
           webSocketSendFunction(payload);
+
+          // Add user message to the messages array immediately
+          if (userMessage) {
+              set(state => ({ messages: [...state.messages, userMessage!] }));
+          }
 
       } catch (err: any) {
           const errorMessage = err.message || 'Failed to send interaction via WebSocket.';
@@ -179,6 +205,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     error: null,
     loadingMessage: '',
     currentInteractionContent: null,
+    messages: [],
     user: null,
     userModelState: { concepts: {}, overall_progress: 0, current_topic: null, session_summary: "Session reset." },
     currentQuizQuestion: null,

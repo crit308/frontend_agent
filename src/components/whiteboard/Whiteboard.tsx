@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { SVG, extend as SVGextend, Element as SVGElement } from '@svgdotjs/svg.js';
+import { SVG, extend as SVGextend, Element as SVGElement, Svg } from '@svgdotjs/svg.js';
 import { PanZoom } from '@svgdotjs/svg.panzoom.js';
 import { useSvgDrawing } from 'react-hooks-svgdrawing';
 import WhiteboardTools from './WhiteboardTools';
+import { useWhiteboardStore } from '@/store/whiteboardStore';
 
 interface WhiteboardProps {
   sessionId?: string;
@@ -15,6 +16,33 @@ const Whiteboard: React.FC<WhiteboardProps> = ({ initialSvg, onSave }) => {
   const [currentTool, setCurrentTool] = useState<'pen' | 'eraser'>('pen');
   const [strokeWidth, setStrokeWidth] = useState(3);
   const [color, setColor] = useState('#000000');
+
+  // --- Connect to whiteboard store ---
+  const setSvgInstance = useWhiteboardStore(state => state.setSvgInstance);
+
+  // When the underlying SVG element is available, wrap it with svg.js and
+  // hand the instance to the zustand store so other parts of the app (e.g.
+  // useTutorStream) can draw chat bubbles/content.
+  useEffect(() => {
+    // give the drawing library a tick to insert its <svg> element
+    const assignSvgInstance = () => {
+      if (!renderRef.current) return false;
+      const svgEl = renderRef.current.querySelector('svg');
+      if (!svgEl) return false;
+      setSvgInstance(SVG(svgEl as any) as unknown as Svg);
+      return true;
+    };
+
+    if (!assignSvgInstance()) {
+      const timer = setTimeout(assignSvgInstance, 50);
+      return () => clearTimeout(timer);
+    }
+
+    // Cleanup – clear timeout and remove instance from store on unmount
+    return () => {
+      setSvgInstance(null);
+    };
+  }, [setSvgInstance, renderRef]);
 
   const handleToolChange = useCallback((tool: 'pen' | 'eraser') => {
     setCurrentTool(tool);

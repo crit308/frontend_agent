@@ -3,11 +3,15 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { connectTutorStream, StreamEvent, onTutorEvent, offTutorEvent } from './wsTutor';
 import { useToast } from '@/components/ui/use-toast';
 import { ToastAction, type ToastActionElement } from '@/components/ui/toast';
-import { useSessionStore, type SessionState, type StructuredError, type LoadingState } from '@/store/sessionStore';
+import { useSessionStore, type SessionState, type StructuredError, type LoadingState, type ChatMessage } from '@/store/sessionStore';
+import { useWhiteboardStore } from '@/store/whiteboardStore';
 import {
   InteractionResponseData,
   QuestionResponse,
   ErrorResponse,
+  ExplanationResponse,
+  FeedbackResponse,
+  type TutorInteractionResponse
 } from '@/lib/types';
 
 // Define more specific connection status types
@@ -58,6 +62,9 @@ export function useTutorStream(
   const deregisterWebSocketSend = useSessionStore.getState().deregisterWebSocketSend;
   const setSessionState = useSessionStore.setState;
   const getState = useSessionStore.getState;
+
+  // Get whiteboard actions
+  const { addChatBubble, addContentBlock } = useWhiteboardStore.getState();
 
   // --- Helper to update both local and store state ---
   const updateStatus = useCallback((status: ConnectionStatus, errorInfo?: { message: string; code?: string }) => {
@@ -248,65 +255,127 @@ export function useTutorStream(
             // Determine error state and loading state based on content type
             let newError: StructuredError | null = null; // Use StructuredError type
             let newLoadingState: LoadingState = 'idle'; // Default to idle after response
-            let sessionEnded = false; // Flag for session end confirmation
+            let newMessages = [...prevState.messages]; // Start with existing messages
 
-            if (contentType === 'error' && dataPayload && typeof dataPayload === 'object' && 'response_type' in dataPayload && dataPayload.response_type === 'error') {
-                const errorData = dataPayload as ErrorResponse;
-                newError = { message: errorData.message, code: errorData.error_code || 'BACKEND_ERROR' }; // Keep object format
-                newLoadingState = 'idle'; // Even on backend error, interaction flow might stop, FE is idle/showing error
-                console.error(`[WS] Received backend error: ${newError.message} (Code: ${newError.code})`);
-            }
-
-            // Check for session end confirmation message
-            if (
-                contentType === 'message' &&
-                dataPayload &&
-                typeof dataPayload === 'object' &&
-                'response_type' in dataPayload &&
-                dataPayload.response_type === 'message' &&
-                'text' in dataPayload &&
-                dataPayload.text === 'SESSION_ENDED_CONFIRMED'
-            ) {
-                console.log("[WS] Received session ended confirmation.");
-                sessionEnded = true;
-                // We might want to keep loadingState as 'idle' or something specific
-                newLoadingState = 'idle'; 
-            }
-
-            // Prepare the final state update, clearing previous errors if this is not an error message
-            const newState: Partial<SessionState> = {
-                currentInteractionContent: dataPayload, // Store the actual content (ExplanationResponse, QuestionResponse, ErrorResponse etc.)
-                userModelState: userModelState,
+            // Default update, can be overridden below
+            const update: Partial<SessionState> = {
+                userModelState,
                 loadingState: newLoadingState,
-                loadingMessage: '', // Clear loading message
-                error: newError !== null ? newError : null, // Set new error, or clear existing non-connection errors
-                sessionEndedConfirmed: sessionEnded || prevState.sessionEndedConfirmed, // Set confirmed flag
-                // Handle question storage specifically
-                currentQuizQuestion: (contentType === 'question' && dataPayload && typeof dataPayload === 'object' && 'question' in dataPayload)
-                                    ? (dataPayload as QuestionResponse).question
-                                    : (newLoadingState === 'idle' ? null : prevState.currentQuizQuestion), // Clear question if idle, otherwise keep previous
+                loadingMessage: '',
+                error: newError, // Reset error on successful interaction
+                currentInteractionContent: null, // Clear old non-message content by default
             };
 
-            return { ...prevState, ...newState };
+            // --- Handle different content types ---
+            switch (contentType) {
+                case 'explanation':
+                    const explanationData = dataPayload as ExplanationResponse;
+                    if (explanationData?.text) {
+                        addContentBlock(explanationData.text, 'explanation');
+                    } else {
+                         console.warn("[WS] Received 'explanation' type without valid text data:", dataPayload);
+                         return prevState;
+                    }
+                    update.loadingState = 'idle';
+                    break;
+
+                case 'question':
+                    const questionData = dataPayload as QuestionResponse;
+                    if (questionData?.question?.question) {
+                        // Combine question text and options (options are strings)
+                        const optionsString = questionData.question.options?.map((opt, i) => `${i + 1}. ${opt}`).join('\n') || '';
+                        const fullQuestionText = `${questionData.question.question}\n\n${optionsString}`;
+                        addContentBlock(fullQuestionText, 'question');
+                    } else {
+                         console.warn("[WS] Received 'question' type without valid question text:", dataPayload);
+                         return prevState;
+                    }
+                    update.loadingState = 'idle';
+                    break;
+
+                case 'feedback':
+                    const feedbackData = dataPayload as FeedbackResponse;
+                    // Access feedback text via feedbackData.feedback.explanation or other fields
+                    let feedbackText = 'Feedback received.'; // Default
+                    if (feedbackData?.feedback?.explanation) {
+                        feedbackText = `Feedback: ${feedbackData.feedback.explanation}`;
+                        if (feedbackData.feedback.improvement_suggestion) {
+                           feedbackText += `\nSuggestion: ${feedbackData.feedback.improvement_suggestion}`;
+                        }
+                    } else if (feedbackData?.feedback?.question_text) { // Fallback using question + answer
+                        feedbackText = `Regarding: "${feedbackData.feedback.question_text}"\nYour answer (${feedbackData.feedback.user_selected_option}) was ${feedbackData.feedback.is_correct ? 'correct' : 'incorrect'}. Correct: ${feedbackData.feedback.correct_option}`;
+                    } else if (typeof feedbackData === 'string') { // Further fallback if data is just a string (unlikely based on types)
+                        feedbackText = feedbackData;
+                    }
+                    addContentBlock(feedbackText, 'feedback');
+                    update.loadingState = 'idle';
+                    break;
+
+                case 'message':
+                    // Append to messages array
+                    const messageContent = dataPayload as { text: string }; // Assuming MessageResponse shape
+                    if (typeof messageContent?.text === 'string') {
+                        const aiMessage: ChatMessage = {
+                            id: Date.now().toString() + '-ai', // Simple unique ID
+                            role: 'assistant',
+                            content: messageContent.text,
+                        };
+                        newMessages.push(aiMessage);
+                        update.messages = newMessages; // Update the messages array
+                        // Keep currentInteractionContent null for messages
+
+                        // Also add bubble to whiteboard
+                        addChatBubble(messageContent.text, { role: 'assistant' });
+
+                    } else {
+                        console.warn("[WS] Received 'message' type without valid text data:", dataPayload);
+                        // Don't update state if data is invalid
+                        return prevState;
+                    }
+                    update.loadingState = 'idle';
+                    break;
+
+                case 'error':
+                    const errorPayload = dataPayload as ErrorResponse;
+                    console.error(`[WS] Tutor Error Response: Code=${errorPayload.error_code}, Msg=${errorPayload.message}`);
+                    newError = { message: errorPayload.message, code: errorPayload.error_code };
+                    update.error = newError;
+                    update.loadingState = 'error';
+                    // Optionally, add error message to chat?
+                    // const errorMessage: ChatMessage = { id: Date.now().toString(), role: 'assistant', content: `Error: ${errorPayload.message}` };
+                    // newMessages.push(errorMessage);
+                    // update.messages = newMessages;
+                    break;
+
+                case 'session_ended':
+                    console.log("[WS] Received session_ended confirmation.");
+                    update.sessionEndedConfirmed = true;
+                    update.loadingState = 'idle';
+                    break;
+
+                default:
+                    console.warn(`[WS] Unhandled content_type: ${contentType}`, parsedData);
+                    // Do not update the main content for unknown types, maybe log?
+                    return prevState; // Return previous state if unhandled
+            }
+
+            console.log("[WS] Updating store state:", update);
+            return { ...prevState, ...update };
         });
 
+        return; // Handled
       } else {
-        // Handle other unexpected message structures
-        console.error('[WS] Received unexpected message structure:', parsedData);
-        handlers.onUnhandled?.(parsedData); // Pass to unhandled handler if provided
-
-        // Update store error state with StructuredError format
-        setSessionState({
-             error: { message: "Received unexpected data format from tutor." }, // Use object format
-             loadingState: 'idle', // Transition to idle on format error
-             loadingMessage: '',
-        });
+         console.warn("[WS] Received data does not match InteractionResponseData structure:", parsedData);
       }
+
+      // Default/Fallback Handling
+      handlers.onUnhandled?.(parsedData);
+      console.warn("[WS] Unhandled message type or structure:", parsedData);
     };
     if (wsRef.current !== ws) {
       console.warn("[WebSocket] wsRef.current was potentially overwritten immediately after creation. Race condition?");
     }
-  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus]);
+  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus, addChatBubble, addContentBlock]);
 
   // --- Main Effect for Connection Management ---
   useEffect(() => {
