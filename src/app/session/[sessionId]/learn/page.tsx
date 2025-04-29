@@ -17,7 +17,6 @@ import type {
 } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTutorStream } from '../../../../../lib/useTutorStream';
-import TutorChat from '@/components/TutorChat';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle } from 'lucide-react';
@@ -27,6 +26,7 @@ import type { StructuredError } from '@/store/sessionStore';
 import ExplanationView from '@/components/views/ExplanationView';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/components/ui/use-toast";
+import ChatInterface from '@/components/chat/ChatInterface';
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -236,12 +236,12 @@ export default function LearnPage() {
     <>
       <div className="flex h-[calc(100vh-8rem)] border rounded-lg overflow-hidden">
 
-        <div className="w-1/3 border-r flex flex-col h-full">
+        <div className="w-1/3 border-r flex flex-col h-full bg-background">
           {missingCredentials || isAuthError ? (
              <div className="p-4 text-center text-muted-foreground">Chat unavailable</div>
           ) : sessionId && jwt ? (
             <>
-              <TutorChat sessionId={sessionId} jwt={jwt} />
+              <ChatInterface />
               <div className="p-2 border-t">
                 <Button
                   onClick={handleEndSession}
