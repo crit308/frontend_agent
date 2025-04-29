@@ -43,10 +43,27 @@ const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ initialSvg, onSave }
           return;
       }
 
-      const svgEl = currentRef.querySelector('svg');
-      if (svgEl) {
-        console.log("[Whiteboard] SVG element found via polling, wrapping with SVG.js"); // Updated log
-        setSvgInstance(SVG(svgEl as unknown as SVGElement) as unknown as Svg);
+      const drawingSvgEl = currentRef.querySelector('svg');
+      if (drawingSvgEl) {
+        // Ensure we have (or create) an overlay svg for chat bubbles.
+        let overlaySvgEl = currentRef.querySelector('#chatOverlaySvg') as SVGSVGElement | null;
+
+        if (!overlaySvgEl) {
+          overlaySvgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement;
+          overlaySvgEl.setAttribute('id', 'chatOverlaySvg');
+          overlaySvgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+          (overlaySvgEl as SVGSVGElement).style.position = 'absolute';
+          (overlaySvgEl as SVGSVGElement).style.top = '0';
+          (overlaySvgEl as SVGSVGElement).style.left = '0';
+          (overlaySvgEl as SVGSVGElement).style.width = '100%';
+          (overlaySvgEl as SVGSVGElement).style.height = '100%';
+          (overlaySvgEl as SVGSVGElement).style.pointerEvents = 'none'; // Allow drawing events to pass through
+
+          currentRef.appendChild(overlaySvgEl);
+        }
+
+        console.log("[Whiteboard] Overlay SVG ready, handing to store.");
+        setSvgInstance(SVG(overlaySvgEl as unknown as SVGElement) as unknown as Svg);
         clearInterval(intervalId);
       } else if (attempts >= maxAttempts) {
         console.warn('[Whiteboard] SVG element not detected after polling.');
