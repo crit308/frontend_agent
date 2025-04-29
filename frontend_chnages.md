@@ -35,45 +35,45 @@
 
 ---
 
-[ ] **Phase 3 — Global Styling**
+[x] **Phase 3 — Global Styling**
 
-- [ ] Copy `index.css` (or equivalent global stylesheet) additions such as `tailwindcss/animate.css` imports.
-- [ ] Ensure custom CSS variables declared in LDCB (`:root {}`) are present in the main app.
-- [ ] Verify dark-mode class (`dark`) handling matches our current setup; adjust `globals.css` if necessary.
+- [x] Copy `index.css` (or equivalent global stylesheet) additions such as `tailwindcss/animate.css` imports.
+- [x] Ensure custom CSS variables declared in LDCB (`:root {}`) are present in the main app.
+- [x] Verify dark-mode class (`dark`) handling matches our current setup; adjust `globals.css` if necessary.
 
 ---
 
-[ ] **Phase 4 — Application Layout (Visual Structure)**
+[x] **Phase 4 — Application Layout (Visual Structure)**
 
 1. Root Layout
-   - [ ] Create/Update `src/components/layout/RootLayout.tsx` (or `app/layout.tsx` if using App Router) to use the **Sidebar** (`components/ui/sidebar.tsx`) and top-level navigation from LDCB.
+   - [x] Create/Update `src/components/layout/RootLayout.tsx` (or `app/layout.tsx` if using App Router) to use the **Sidebar** (`components/ui/sidebar.tsx`) and top-level navigation from LDCB.
 2. Pages
-   - [ ] Update existing pages to render inside the new layout (wrap with `<RootLayout>`).
-   - [ ] Remove/replace the old navbar/aside components that conflict.
+   - [x] Update existing pages to render inside the new layout (wrap with `<RootLayout>`).
+   - [x] Remove/replace the old navbar/aside components that conflict.
 3. Meta & SEO
-   - [ ] Port any `<Head>` meta tags from LDCB `index.html` (title, description, favicon links).
+   - [x] Port any `<Head>` meta tags from LDCB `index.html` (title, description, favicon links).
 
 ---
 
 [ ] **Phase 5 — Feature Components Integration**
 
 1. 💬 Chat Interface
-   - [ ] Copy `ChatInterface.tsx`, `ChatMessage.tsx` into `src/components/chat/`.
-   - [ ] Replace internal state/store in these components with the existing AI-Tutor chat logic (API calls, context provider).
-   - [ ] Remove duplicate logic that already exists in AI-Tutor.
+   - [x] Copy `ChatInterface.tsx`, `ChatMessage.tsx` into `src/components/chat/`.
+   - [x] Replace internal state/store in these components with the existing AI-Tutor chat logic (API calls, context provider).
+   - [/] Remove duplicate logic that already exists in AI-Tutor. (Marked as in progress - message display needs further work)
 
 2. 📝 Whiteboard
-   - [ ] Copy `Whiteboard.tsx` and `WhiteboardTools.tsx` into `src/components/whiteboard/`.
-   - [ ] Ensure drawing library deps (`@svgdotjs/svg.js`, `penpal`, etc.) are installed or migrated.
+   - [x] Copy `Whiteboard.tsx` and `WhiteboardTools.tsx` into `src/components/whiteboard/`.
+   - [x] Ensure drawing library deps (`@svgdotjs/svg.js`, `penpal`, etc.) are installed or migrated. (Installed svg.js, panzoom, react-hooks-svgdrawing)
    - [ ] Connect whiteboard save/submit actions to our backend (if applicable).
 
 ---
 
 [ ] **Phase 6 — Routing & State Management**
 
-- [ ] Wire up routes or dynamic tabs so users can switch between Chat and Whiteboard views, matching the LDCB UX.
-- [ ] Verify existing global state management (`context`, `zustand`, `redux`, etc.) is compatible with new components.
-- [ ] Remove redundant state stores.
+- [x] Wire up routes or dynamic tabs so users can switch between Chat and Whiteboard views, matching the LDCB UX. (Implemented Tabs in /learn page)
+- [x] Verify existing global state management (`context`, `zustand`, `redux`, etc.) is compatible with new components. (ChatInterface adapted to useSessionStore; Whiteboard seems ok for now)
+- [ ] Remove redundant state stores. (Checked ChatInterface/Whiteboard, none found that needed removal)
 
 ---
 
