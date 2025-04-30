@@ -4,7 +4,6 @@ import { connectTutorStream, StreamEvent, onTutorEvent, offTutorEvent } from './
 import { useToast } from '@/components/ui/use-toast';
 import { ToastAction, type ToastActionElement } from '@/components/ui/toast';
 import { useSessionStore, type SessionState, type StructuredError, type LoadingState, type ChatMessage } from '@/store/sessionStore';
-import { useWhiteboardStore } from '@/store/whiteboardStore';
 import {
   InteractionResponseData,
   QuestionResponse,
@@ -63,9 +62,6 @@ export function useTutorStream(
   const deregisterWebSocketSend = useSessionStore.getState().deregisterWebSocketSend;
   const setSessionState = useSessionStore.setState;
   const getState = useSessionStore.getState;
-
-  // Get whiteboard actions
-  const { addChatBubble, addContentBlock } = useWhiteboardStore.getState();
 
   // --- Helper to update both local and store state ---
   const updateStatus = useCallback((status: ConnectionStatus, errorInfo?: { message: string; code?: string }) => {
@@ -273,7 +269,6 @@ export function useTutorStream(
                     const explanationData = dataPayload as ExplanationResponse;
                     if (explanationData?.text) {
                         console.log('[WS] Adding content block (explanation):', explanationData.text);
-                        addContentBlock(explanationData.text, 'explanation');
                     } else {
                          console.warn("[WS] Received 'explanation' type without valid text data:", dataPayload);
                          return prevState;
@@ -288,7 +283,6 @@ export function useTutorStream(
                         const optionsString = questionData.question.options?.map((opt, i) => `${i + 1}. ${opt}`).join('\n') || '';
                         const formattedText = `Question:\n${questionData.question.question}\n\nOptions:\n${optionsString}`;
                         console.log('[WS] Adding content block (question):', formattedText);
-                        addContentBlock(formattedText, 'question');
                     } else {
                          console.warn("[WS] Received 'question' type without valid question data:", dataPayload);
                          return prevState;
@@ -310,7 +304,6 @@ export function useTutorStream(
                         const suggestion = fb.improvement_suggestion ? `\nSuggestion: ${fb.improvement_suggestion}` : '';
                         const formattedText = `Feedback (${correctness})\nRegarding: "${fb.question_text}"\n${answerInfo}${explanation}${suggestion}`;
                         console.log('[WS] Adding content block (feedback):', formattedText);
-                        addContentBlock(formattedText, 'feedback');
                     } else {
                         console.warn("[WS] Received 'feedback' type without valid feedback data:", dataPayload);
                     }
@@ -321,7 +314,6 @@ export function useTutorStream(
                     const messageContent = dataPayload as MessageResponse;
                     if (messageContent?.text) {
                         console.log('[WS] Adding chat bubble (assistant):', messageContent.text);
-                        addChatBubble(messageContent.text, { role: 'assistant' });
                     } else {
                         console.warn("[WS] Received 'message' type without valid text:", dataPayload);
                     }
@@ -370,7 +362,7 @@ export function useTutorStream(
     if (wsRef.current !== ws) {
       console.warn("[WebSocket] wsRef.current was potentially overwritten immediately after creation. Race condition?");
     }
-  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus, addChatBubble, addContentBlock]);
+  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus]);
 
   // --- Main Effect for Connection Management ---
   useEffect(() => {

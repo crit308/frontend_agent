@@ -28,8 +28,13 @@ import { useToast } from "@/components/ui/use-toast";
 import Whiteboard from '@/components/whiteboard/Whiteboard';
 import { Textarea } from '@/components/ui/textarea';
 import { Send } from 'lucide-react';
-import { useWhiteboardStore } from '@/store/whiteboardStore';
 import ChatHistory, { UserMessage } from '@/components/ChatHistory';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable"
+import { WhiteboardProvider } from '@/contexts/WhiteboardProvider';
 
 // Union type for messages stored in state
 type ChatMessage = TutorInteractionResponse | UserMessage;
@@ -217,53 +222,45 @@ export default function LearnPage() {
   // --- End Loading and Error States ---
 
   return (
-    // Main container uses flex-row for side-by-side layout
-    <div className="flex h-screen w-screen bg-background">
-
-      {/* Left Column: Chat History + Input */}
-      <div className="flex flex-col w-1/3 max-w-md border-r border-border bg-muted/40"> {/* Adjust width as needed */}
-        {/* Chat History Area */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {/* Pass message history and the onNext handler (sendInteraction) */}
-          <ChatHistory messages={chatMessages} onNext={() => sendInteraction('next')} />
-        </div>
-
-        {/* Input Bar at the bottom of the left column */}
-        <div className="p-4 border-t border-border bg-background"> {/* Added bg */}
-          <div className="flex items-center gap-2">
-            <Textarea
-              placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
-              value={userInput}
-              onChange={(e) => setUserInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              className="flex-1 resize-none shadow-sm"
-              rows={1} // Keep rows={1} for consistency, can allow more rows if needed
-              disabled={isInputDisabled}
-            />
-            <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-sm">
-              <Send className="h-4 w-4" />
-              <span className="sr-only">Send</span>
-            </Button>
+    <WhiteboardProvider>
+      <ResizablePanelGroup
+        direction="horizontal"
+        className="h-screen w-screen bg-background"
+      >
+        <ResizablePanel defaultSize={33} minSize={20} className="flex flex-col">
+          {/* Left Column: Chat History + Input */}
+          {/* Chat History Area - flex-1 makes it take available space, overflow-y-auto allows scrolling */}
+          <div className="flex-1 overflow-y-auto p-4">
+            <ChatHistory messages={chatMessages} onNext={() => sendInteraction('next')} />
           </div>
-        </div>
-      </div>
 
-      {/* Right Column: Whiteboard */}
-      <div className="flex-1 overflow-hidden relative"> {/* Added relative positioning for potential overlays */}
-        <Whiteboard /> {/* Whiteboard takes remaining space */}
-
-        {/* Status indicators can overlay the whiteboard or be placed elsewhere */}
-        {/* <div className="absolute top-2 right-2 flex items-center gap-2 p-1 bg-gray-700/50 text-white text-xs rounded">
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor, display: 'inline-block' }}></span>
-          {connectionStatus} {latency !== null ? `(${latency}ms)` : ''}
-        </div> */}
-      </div>
-
-      {/* Input Bar is MOVED to the left column */}
-      {/* <div className="absolute bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-sm border-t border-border"> ... </div> */}
-
-      {/* Status indicators - MOVED to overlay whiteboard or place in a header/footer */}
-      {/* <div className="absolute top-2 right-2 ..."> ... </div> */}
-    </div>
+          {/* Input Bar at the bottom of the left column - stays at the bottom */}
+          <div className="p-4 border-t border-border bg-background">
+            <div className="flex items-center gap-2">
+              <Textarea
+                placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
+                value={userInput}
+                onChange={(e) => setUserInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                className="flex-1 resize-none shadow-sm"
+                rows={1}
+                disabled={isInputDisabled}
+              />
+              <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-sm">
+                <Send className="h-4 w-4" />
+                <span className="sr-only">Send</span>
+              </Button>
+            </div>
+          </div>
+        </ResizablePanel>
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize={67} minSize={30}>
+          {/* Right Column: Whiteboard - takes full panel height */}
+          <div className="flex h-full items-center justify-center p-4">
+            <Whiteboard sessionId={sessionId} />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </WhiteboardProvider>
   );
 } 
