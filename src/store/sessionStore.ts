@@ -13,7 +13,8 @@ import {
   UserConceptMastery,
   UserInteractionOutcome,
   FocusObjective,
-  TutorInteractionResponse
+  TutorInteractionResponse,
+  ErrorResponse
 } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
@@ -31,7 +32,8 @@ export interface StructuredError {
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant'; // Use role instead of sender
-  content: string; // Use content instead of text
+  content: string; // Always the string representation for basic display
+  interaction?: TutorInteractionResponse | ErrorResponse | null; // Store the original interaction object for assistant messages
   isLoading?: boolean; // Optional loading state
 }
 

@@ -21,23 +21,20 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
-import type { SessionState } from '@/store/sessionStore';
+import type { SessionState, ChatMessage } from '@/store/sessionStore';
 import type { StructuredError } from '@/store/sessionStore';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/components/ui/use-toast";
 import Whiteboard from '@/components/whiteboard/Whiteboard';
 import { Textarea } from '@/components/ui/textarea';
 import { Send } from 'lucide-react';
-import ChatHistory, { UserMessage } from '@/components/ChatHistory';
+import ChatHistory from '@/components/ChatHistory';
 import {
   ResizablePanelGroup,
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable"
 import { WhiteboardProvider } from '@/contexts/WhiteboardProvider';
-
-// Union type for messages stored in state
-type ChatMessage = TutorInteractionResponse | UserMessage;
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -47,8 +44,6 @@ export default function LearnPage() {
   const { toast } = useToast();
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [userInput, setUserInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]); // State for chat history
-  const currentInteractionRef = useRef<TutorInteractionResponse | null>(null); // Ref to track current interaction
 
   const {
     currentInteractionContent,
@@ -57,6 +52,7 @@ export default function LearnPage() {
     connectionStatus,
     sendInteraction,
     sessionEndedConfirmed,
+    messages,
   } = useSessionStore(
     useShallow((state: SessionState) => ({
       currentInteractionContent: state.currentInteractionContent,
@@ -65,6 +61,7 @@ export default function LearnPage() {
       connectionStatus: state.connectionStatus,
       sendInteraction: state.sendInteraction,
       sessionEndedConfirmed: state.sessionEndedConfirmed,
+      messages: state.messages,
     }))
   );
 
@@ -82,17 +79,6 @@ export default function LearnPage() {
     };
   }, []);
 
-  // Effect to update chat history when a new interaction arrives from the store
-  useEffect(() => {
-    // Check if the content is new and different from the last processed one
-    if (currentInteractionContent && currentInteractionContent !== currentInteractionRef.current) {
-      console.log('[LearnPage] New interaction received, adding to history:', currentInteractionContent);
-      setChatMessages(prevMessages => [...prevMessages, currentInteractionContent]);
-      currentInteractionRef.current = currentInteractionContent; // Update ref
-    }
-  }, [currentInteractionContent]);
-
-  // Effect to handle auto-advance on the last explanation segment
   useEffect(() => {
     if (
       currentInteractionContent &&
@@ -100,37 +86,30 @@ export default function LearnPage() {
       currentInteractionContent.is_last_segment === true
     ) {
       console.log('[LearnPage] Last explanation segment received, auto-advancing...');
-      // Short delay to allow user to read the last segment briefly before transition
       const timer = setTimeout(() => {
            sendInteraction('next');
-      }, 1500); // 1.5 second delay
-
-      return () => clearTimeout(timer); // Cleanup timeout on unmount or if content changes
+      }, 1500);
+      return () => clearTimeout(timer);
     }
   }, [currentInteractionContent, sendInteraction]);
 
-  // Effect to handle session ended confirmation and redirect
   useEffect(() => {
     if (sessionEndedConfirmed) {
       console.log('[LearnPage] Session end confirmed by backend.');
       toast({
         title: "Session Ended",
         description: "Analysis is processing in the background.",
-        duration: 5000, // Show toast for 5 seconds
+        duration: 5000,
       });
-
-      // Redirect after a delay
       const redirectTimer = setTimeout(() => {
-        router.push('/'); // Redirect to home page
-      }, 3000); // 3 second delay before redirect
-
-      return () => clearTimeout(redirectTimer); // Cleanup timer on unmount
+        router.push('/');
+      }, 3000);
+      return () => clearTimeout(redirectTimer);
     }
   }, [sessionEndedConfirmed, router, toast]);
 
-  console.log('[LearnPage] Rendering. Messages:', chatMessages.length, 'Status:', connectionStatus, 'LoadingState:', loadingState, 'AuthLoading:', authLoading);
+  console.log('[LearnPage] Rendering. Store Messages:', messages.length, 'Status:', connectionStatus, 'LoadingState:', loadingState, 'AuthLoading:', authLoading);
 
-  // Determine status color based on connectionStatus
   const getStatusColor = (status: typeof connectionStatus): string => {
     switch (status) {
       case 'connected': return 'lightgreen';
@@ -144,19 +123,16 @@ export default function LearnPage() {
   };
   const statusColor = getStatusColor(connectionStatus);
 
-  // Determine loading/error states first
   const isLoading = authLoading || connectionStatus === 'connecting' || connectionStatus === 'reconnecting';
   const isAuthError = connectionStatus === 'auth_error';
   const isConnectionError = connectionStatus === 'error';
   const isErrorState = isAuthError || isConnectionError;
   const missingCredentials = !sessionId || !jwt;
 
-  // Prepare error details if needed
   const errorDetails = error as StructuredError | null;
   const errorTitle = isAuthError ? "Authentication Error" : "Connection Error";
   const errorMessage = errorDetails?.message || (isAuthError ? "Authentication failed. Please log in again." : "An unexpected error occurred.");
 
-  // Handler for ending the session
   const handleEndSession = async () => {
     if (!sessionId) return;
     setIsEndingSession(true);
@@ -174,7 +150,6 @@ export default function LearnPage() {
     }
   };
 
-  // --- Input Bar Logic ---
   const isInputDisabled = connectionStatus !== 'connected' || loadingState === 'interacting';
 
   const handleSendMessage = useCallback(async () => {
@@ -183,11 +158,6 @@ export default function LearnPage() {
 
     console.log('[LearnPage] Sending user message:', trimmedInput);
 
-    // 1. Add user message to local state immediately for responsiveness
-    const userMsg: UserMessage = { type: 'user', text: trimmedInput };
-    setChatMessages(prevMessages => [...prevMessages, userMsg]);
-
-    // 2. Send interaction to backend
     sendInteraction('user_message', { text: trimmedInput });
     setUserInput('');
 
@@ -199,9 +169,7 @@ export default function LearnPage() {
       handleSendMessage();
     }
   }, [handleSendMessage]);
-  // --- End Input Bar Logic ---
 
-  // --- Loading and Error States Handling ---
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen w-screen"><LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} /></div>;
   }
@@ -219,7 +187,6 @@ export default function LearnPage() {
       </div>
     );
   }
-  // --- End Loading and Error States ---
 
   return (
     <WhiteboardProvider>
@@ -228,13 +195,10 @@ export default function LearnPage() {
         className="h-screen w-screen bg-background"
       >
         <ResizablePanel defaultSize={33} minSize={20} className="flex flex-col">
-          {/* Left Column: Chat History + Input */}
-          {/* Chat History Area - flex-1 makes it take available space, overflow-y-auto allows scrolling */}
           <div className="flex-1 overflow-y-auto p-4">
-            <ChatHistory messages={chatMessages} onNext={() => sendInteraction('next')} />
+            <ChatHistory messages={messages} onNext={() => sendInteraction('next')} />
           </div>
 
-          {/* Input Bar at the bottom of the left column - stays at the bottom */}
           <div className="p-4 border-t border-border bg-background">
             <div className="flex items-center gap-2">
               <Textarea
@@ -248,16 +212,27 @@ export default function LearnPage() {
               />
               <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-sm">
                 <Send className="h-4 w-4" />
-                <span className="sr-only">Send</span>
               </Button>
             </div>
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={67} minSize={30}>
-          {/* Right Column: Whiteboard - takes full panel height */}
-          <div className="flex h-full items-center justify-center p-4">
-            <Whiteboard sessionId={sessionId} />
+        <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
+          <div className="flex-1 bg-white p-4 relative">
+            <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', alignItems: 'center', gap: '5px', zIndex: 10 }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor }} />
+              <span className="text-xs text-muted-foreground">{connectionStatus}{latency !== null ? ` (${latency}ms)` : ''}</span>
+            </div>
+            <Whiteboard />
+          </div>
+          <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
+            <Button
+              onClick={handleEndSession}
+              variant="destructive"
+              disabled={isEndingSession || connectionStatus !== 'connected'}
+            >
+              {isEndingSession ? <LoadingSpinner size={16}/> : 'End Session & Analyze'}
+            </Button>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

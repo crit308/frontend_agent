@@ -249,110 +249,148 @@ export function useTutorStream(
 
         // Update Zustand store using functional update
         setSessionState((prevState) => {
-            // Determine error state and loading state based on content type
-            let newError: StructuredError | null = null; // Use StructuredError type
-            let newLoadingState: LoadingState = 'idle'; // Default to idle after response
-            let newMessages = [...prevState.messages]; // Start with existing messages
+            let newError: StructuredError | null = null;
+            let newLoadingState: LoadingState = 'idle';
+            let newMessages = prevState.messages; // Start with existing messages
 
-            // Default update, can be overridden below
+            // Initialize update object
             const update: Partial<SessionState> = {
-                userModelState,
+                userModelState, // Always update user model state
                 loadingState: newLoadingState,
                 loadingMessage: '',
                 error: newError, // Reset error on successful interaction
-                currentInteractionContent: null, // Clear old non-message content by default
+                // Initialize with the NEW dataPayload by default
+                currentInteractionContent: dataPayload as TutorInteractionResponse | null,
+                sessionEndedConfirmed: prevState.sessionEndedConfirmed, // Preserve existing value
             };
 
             // --- Handle different content types ---
             switch (contentType) {
                 case 'explanation':
-                    const explanationData = dataPayload as ExplanationResponse;
-                    if (explanationData?.text) {
-                        console.log('[WS] Adding content block (explanation):', explanationData.text);
-                    } else {
-                         console.warn("[WS] Received 'explanation' type without valid text data:", dataPayload);
-                         return prevState;
-                    }
-                    update.loadingState = 'idle';
-                    break;
-
                 case 'question':
-                    const questionData = dataPayload as QuestionResponse;
-                    if (questionData?.question?.question) {
-                        // Combine question text and options (options are strings)
-                        const optionsString = questionData.question.options?.map((opt, i) => `${i + 1}. ${opt}`).join('\n') || '';
-                        const formattedText = `Question:\n${questionData.question.question}\n\nOptions:\n${optionsString}`;
-                        console.log('[WS] Adding content block (question):', formattedText);
-                    } else {
-                         console.warn("[WS] Received 'question' type without valid question data:", dataPayload);
-                         return prevState;
-                    }
-                    update.loadingState = 'idle';
-                    break;
-
                 case 'feedback':
-                    const feedbackData = dataPayload as FeedbackResponse;
-                    // Check the nested 'feedback' property directly
-                    if (feedbackData?.feedback) {
-                        const fb = feedbackData.feedback;
-                        const correctness = fb.is_correct ? 'Correct!' : 'Incorrect';
-                        // Ensure options are strings before accessing them
-                        const userAnswer = typeof fb.user_selected_option === 'string' ? `"${fb.user_selected_option}"` : '(No selection)';
-                        const correctAnswer = typeof fb.correct_option === 'string' ? ` (Correct: "${fb.correct_option}")` : '';
-                        const answerInfo = fb.is_correct ? `Your answer: ${userAnswer}` : `Your answer: ${userAnswer}${correctAnswer}`;
-                        const explanation = fb.explanation ? `\nExplanation: ${fb.explanation}` : '';
-                        const suggestion = fb.improvement_suggestion ? `\nSuggestion: ${fb.improvement_suggestion}` : '';
-                        const formattedText = `Feedback (${correctness})\nRegarding: "${fb.question_text}"\n${answerInfo}${explanation}${suggestion}`;
-                        console.log('[WS] Adding content block (feedback):', formattedText);
-                    } else {
-                        console.warn("[WS] Received 'feedback' type without valid feedback data:", dataPayload);
-                    }
-                    update.loadingState = 'idle';
-                    break;
-
                 case 'message':
-                    const messageContent = dataPayload as MessageResponse;
-                    if (messageContent?.text) {
-                        console.log('[WS] Adding chat bubble (assistant):', messageContent.text);
-                    } else {
-                        console.warn("[WS] Received 'message' type without valid text:", dataPayload);
+                    // The default update already sets currentInteractionContent correctly
+                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
+                     // Add the NEW interaction content to the messages array
+                    try {
+                        const interactionToAdd = dataPayload as TutorInteractionResponse;
+
+                        // --- EXTRACT STRING CONTENT --- START
+                        let messageContentString = "Assistant message received."; // Fallback
+                        if ('text' in interactionToAdd && typeof interactionToAdd.text === 'string') {
+                            messageContentString = interactionToAdd.text;
+                        } else if ('question' in interactionToAdd && typeof interactionToAdd.question?.question === 'string') {
+                            // Basic question text for chat history
+                            messageContentString = `Question: ${interactionToAdd.question.question}`;
+                            if (interactionToAdd.question.options && Array.isArray(interactionToAdd.question.options)) {
+                                const options = interactionToAdd.question.options.map((opt, i) => `\n${i + 1}. ${opt}`).join('');
+                                messageContentString += options;
+                            }
+                        } else if ('feedback' in interactionToAdd && interactionToAdd.feedback) {
+                            // Basic feedback text for chat history
+                            const fb = interactionToAdd.feedback;
+                            const correctness = fb.is_correct ? 'Correct' : 'Incorrect';
+                            messageContentString = `Feedback (${correctness}): Regarding "${fb.question_text}"`;
+                            if (fb.explanation) {
+                                messageContentString += `\nExplanation: ${fb.explanation}`;
+                            }
+                        }
+                        // Add more cases here if other response types need specific string formatting
+                        // --- EXTRACT STRING CONTENT --- END
+
+                        // Simple timestamp ID - consider using a UUID library later if needed
+                        const messageToAdd: ChatMessage = {
+                            id: Date.now().toString() + Math.random().toString(36).substring(2), // Add randomness to avoid collisions
+                            role: 'assistant',
+                            content: messageContentString, // Use extracted string content
+                            interaction: interactionToAdd // Store the original interaction object
+                        };
+                        newMessages = [...prevState.messages, messageToAdd];
+                        update.messages = newMessages; // Include updated messages in the update object
+                        console.log(`[WS Store Update] Added assistant message to history. New count: ${newMessages.length}`);
+                    } catch (error) {
+                        console.error("[WS Store Update] Error creating or adding assistant message:", error, dataPayload);
+                        // Decide if you want to set an error state here or just log
                     }
                     break;
 
                 case 'error':
                     const errorPayload = dataPayload as ErrorResponse;
-                    console.error('[WS] Received error:', errorPayload.message, errorPayload.details);
-                    // Update error state in session store
+                    console.error('[WS Store Update] Received error:', errorPayload.message, errorPayload.details);
                     newError = { message: errorPayload.message, code: errorPayload.error_code };
                     update.error = newError;
                     update.loadingState = 'error';
+                    update.currentInteractionContent = errorPayload; // Set error content
+
+                    // Add error message to the chat history
+                    const errorMessageToAdd: ChatMessage = {
+                        id: Date.now().toString() + Math.random().toString(36).substring(2),
+                        role: 'assistant',
+                        content: `Error: ${errorPayload.message}`,
+                        interaction: errorPayload // Store the error object
+                    };
+                    newMessages = [...prevState.messages, errorMessageToAdd];
+                    // No need to set update.messages here, it's handled below
+
                     toast({
-                        title: "Error from Tutor",
-                        description: errorPayload.message,
-                        variant: "destructive",
+                        title: `Tutor Error${errorPayload.error_code ? ` (${errorPayload.error_code})` : ''}`,
+                        description: errorPayload.message || 'An unknown error occurred.',
+                        variant: 'destructive',
+                        duration: 10000,
+                        action: getAnalysisAction(),
                     });
-                    // Do not add to whiteboard for now
                     break;
 
                 case 'session_ended':
-                    console.log("[WS] Received session_ended confirmation.");
+                    console.log("[WS Store Update] Received session_ended confirmation.");
                     update.sessionEndedConfirmed = true;
                     update.loadingState = 'idle';
+                    update.currentInteractionContent = null; // Clear content on session end
+
+                    // Add Session Ended system message to history
+                    const endMessageToAdd: ChatMessage = {
+                        id: Date.now().toString() + Math.random().toString(36).substring(2),
+                        role: 'assistant', // Or maybe a 'system' role if you add it
+                        content: 'Session ended.',
+                        interaction: null // No specific interaction object for this
+                    };
+                    newMessages = [...prevState.messages, endMessageToAdd];
+                    // No need to set update.messages here, it's handled below
+
                     break;
 
                 default:
-                    console.warn(`[WS] Unhandled content_type: ${contentType}`, parsedData);
-                    // Do not update the main content for unknown types, maybe log?
-                    return prevState; // Return previous state if unhandled
+                    console.warn(`[WS Store Update] Unhandled content_type: ${contentType}`, parsedData);
+                    update.currentInteractionContent = null; // Clear for unhandled types
             }
 
-            console.log("[WS] Updating store state:", update);
+            // Update messages only if they changed
+            if (newMessages !== prevState.messages) {
+                 update.messages = newMessages;
+            }
+
+
+            console.log("[WS Store Update] Final state update object:", update);
+            // Apply the updates to the previous state
             return { ...prevState, ...update };
         });
 
         return; // Handled
       } else {
          console.warn("[WS] Received data does not match InteractionResponseData structure:", parsedData);
+      }
+
+      // --- Handle other event types (if any) ---
+      // Example: Agent updated event
+      if (parsedData?.type === 'agent_updated') {
+        handlers.onAgentUpdated?.(parsedData.event);
+        return; // Handled
+      }
+      // Example: Run item event
+      if (parsedData?.type === 'run_item') {
+        handlers.onRunItem?.(parsedData.item);
+        return; // Handled
       }
 
       // Default/Fallback Handling
