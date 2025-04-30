@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import ExplanationViewComponent from '@/components/interaction/ExplanationView';
@@ -23,13 +23,16 @@ import { AlertTriangle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import type { SessionState } from '@/store/sessionStore';
 import type { StructuredError } from '@/store/sessionStore';
-import ExplanationView from '@/components/views/ExplanationView';
 import { Button } from '@/components/ui/button';
 import { useToast } from "@/components/ui/use-toast";
 import Whiteboard from '@/components/whiteboard/Whiteboard';
 import { Textarea } from '@/components/ui/textarea';
 import { Send } from 'lucide-react';
 import { useWhiteboardStore } from '@/store/whiteboardStore';
+import ChatHistory, { UserMessage } from '@/components/ChatHistory';
+
+// Union type for messages stored in state
+type ChatMessage = TutorInteractionResponse | UserMessage;
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -39,6 +42,9 @@ export default function LearnPage() {
   const { toast } = useToast();
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [userInput, setUserInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]); // State for chat history
+  const currentInteractionRef = useRef<TutorInteractionResponse | null>(null); // Ref to track current interaction
+
   const {
     currentInteractionContent,
     loadingState,
@@ -65,14 +71,21 @@ export default function LearnPage() {
 
   const { latency } = useTutorStream(sessionId || '', jwt, streamHandlers);
 
-  // Get whiteboard action
-  const addChatBubble = useWhiteboardStore(state => state.addChatBubble);
-
   useEffect(() => {
     return () => {
       console.log("LearnPage UNMOUNTING");
     };
   }, []);
+
+  // Effect to update chat history when a new interaction arrives from the store
+  useEffect(() => {
+    // Check if the content is new and different from the last processed one
+    if (currentInteractionContent && currentInteractionContent !== currentInteractionRef.current) {
+      console.log('[LearnPage] New interaction received, adding to history:', currentInteractionContent);
+      setChatMessages(prevMessages => [...prevMessages, currentInteractionContent]);
+      currentInteractionRef.current = currentInteractionContent; // Update ref
+    }
+  }, [currentInteractionContent]);
 
   // Effect to handle auto-advance on the last explanation segment
   useEffect(() => {
@@ -110,7 +123,7 @@ export default function LearnPage() {
     }
   }, [sessionEndedConfirmed, router, toast]);
 
-  console.log('[LearnPage] Rendering. InteractionContent:', currentInteractionContent, 'Status:', connectionStatus, 'LoadingState:', loadingState, 'AuthLoading:', authLoading);
+  console.log('[LearnPage] Rendering. Messages:', chatMessages.length, 'Status:', connectionStatus, 'LoadingState:', loadingState, 'AuthLoading:', authLoading);
 
   // Determine status color based on connectionStatus
   const getStatusColor = (status: typeof connectionStatus): string => {
@@ -164,14 +177,16 @@ export default function LearnPage() {
     if (!trimmedInput || isInputDisabled) return;
 
     console.log('[LearnPage] Sending user message:', trimmedInput);
+
+    // 1. Add user message to local state immediately for responsiveness
+    const userMsg: UserMessage = { type: 'user', text: trimmedInput };
+    setChatMessages(prevMessages => [...prevMessages, userMsg]);
+
+    // 2. Send interaction to backend
     sendInteraction('user_message', { text: trimmedInput });
     setUserInput('');
 
-    // Add user message bubble to whiteboard
-    addChatBubble(trimmedInput, { role: 'user' });
-
-    // In PHASE 2, we'll also call boardAPI.addChatBubble(trimmedInput) here
-  }, [userInput, isInputDisabled, sendInteraction, addChatBubble]);
+  }, [userInput, isInputDisabled, sendInteraction]);
 
   const handleKeyPress = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -180,13 +195,6 @@ export default function LearnPage() {
     }
   }, [handleSendMessage]);
   // --- End Input Bar Logic ---
-
-  const renderWhiteboardContent = () => {
-    // This function now just returns the content to be potentially rendered *onto* the whiteboard later
-    // For now, it's unused as the whiteboard takes the full screen.
-    // In PHASE 2/3, this logic might be adapted to feed content *to* the whiteboard API.
-    return null; // Placeholder - logic will move
-  };
 
   // --- Loading and Error States Handling ---
   if (isLoading) {
@@ -209,40 +217,53 @@ export default function LearnPage() {
   // --- End Loading and Error States ---
 
   return (
-    // Main container is now just the whiteboard + the input bar
-    <div className="relative h-full w-full flex flex-col bg-background">
-      {/* Whiteboard takes up all space except the input bar */}
-      <div className="flex-1 overflow-hidden"> {/* Added overflow-hidden */}
-        <Whiteboard /> {/* Pass necessary props if needed later */}
-      </div>
+    // Main container uses flex-row for side-by-side layout
+    <div className="flex h-screen w-screen bg-background">
 
-      {/* Input Bar at the bottom */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-sm border-t border-border">
-        <div className="max-w-3xl mx-auto flex items-center gap-2">
-          <Textarea
-            placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            className="flex-1 resize-none shadow-md" // Added shadow
-            rows={1}
-            disabled={isInputDisabled}
-          />
-          <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-md"> {/* Added shadow */}
-            <Send className="h-4 w-4" />
-            <span className="sr-only">Send</span>
-          </Button>
-          {/* Optional: Add End Session Button here? */}
-          {/* <Button variant="outline" onClick={handleEndSession} disabled={isEndingSession}>End Session</Button> */}
+      {/* Left Column: Chat History + Input */}
+      <div className="flex flex-col w-1/3 max-w-md border-r border-border bg-muted/40"> {/* Adjust width as needed */}
+        {/* Chat History Area */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* Pass message history and the onNext handler (sendInteraction) */}
+          <ChatHistory messages={chatMessages} onNext={() => sendInteraction('next')} />
+        </div>
+
+        {/* Input Bar at the bottom of the left column */}
+        <div className="p-4 border-t border-border bg-background"> {/* Added bg */}
+          <div className="flex items-center gap-2">
+            <Textarea
+              placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="flex-1 resize-none shadow-sm"
+              rows={1} // Keep rows={1} for consistency, can allow more rows if needed
+              disabled={isInputDisabled}
+            />
+            <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-sm">
+              <Send className="h-4 w-4" />
+              <span className="sr-only">Send</span>
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Render status indicators - maybe overlay top-right? */}
-      {/* Example: */}
-      {/* <div className="absolute top-2 right-2 flex items-center gap-2 p-1 bg-gray-700/50 text-white text-xs rounded">
-        <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor, display: 'inline-block' }}></span>
-        {connectionStatus} {latency !== null ? `(${latency}ms)` : ''}
-      </div> */}
+      {/* Right Column: Whiteboard */}
+      <div className="flex-1 overflow-hidden relative"> {/* Added relative positioning for potential overlays */}
+        <Whiteboard /> {/* Whiteboard takes remaining space */}
+
+        {/* Status indicators can overlay the whiteboard or be placed elsewhere */}
+        {/* <div className="absolute top-2 right-2 flex items-center gap-2 p-1 bg-gray-700/50 text-white text-xs rounded">
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor, display: 'inline-block' }}></span>
+          {connectionStatus} {latency !== null ? `(${latency}ms)` : ''}
+        </div> */}
+      </div>
+
+      {/* Input Bar is MOVED to the left column */}
+      {/* <div className="absolute bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-sm border-t border-border"> ... </div> */}
+
+      {/* Status indicators - MOVED to overlay whiteboard or place in a header/footer */}
+      {/* <div className="absolute top-2 right-2 ..."> ... </div> */}
     </div>
   );
 } 
