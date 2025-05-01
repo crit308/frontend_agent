@@ -205,7 +205,7 @@ function InnerLearnPage() {
       case 'question':
         return <QuestionView content={contentData as QuestionResponse} onAnswer={handleAnswerSubmit} />;
       case 'feedback':
-        return <FeedbackView feedback={(contentData as FeedbackResponse).feedback} onNext={handleNext} />;
+        return <FeedbackView feedback={(contentData as FeedbackResponse).item} onNext={handleNext} />;
       case 'message':
         return <MessageView content={contentData as MessageResponse} />;
       case 'error':

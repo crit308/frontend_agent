@@ -84,7 +84,13 @@ const TutorMessageRenderer: React.FC<TutorMessageRendererProps> = ({ interaction
       case 'question':
         return <QuestionView content={tutorInteraction as QuestionResponse} />;
       case 'feedback':
-        return <FeedbackViewComponent feedback={(tutorInteraction as FeedbackResponse).feedback} onNext={onNext} />;
+        return <FeedbackViewComponent feedback={(tutorInteraction as FeedbackResponse).item} onNext={onNext} />;
+      case 'follow_up_questions':
+        return (
+          <div className="text-xs text-muted-foreground">
+            Follow-up questions are not supported in this version.
+          </div>
+        );
       case 'message':
         return <MessageViewComponent content={tutorInteraction as MessageResponse} />;
       // Error case handled above
