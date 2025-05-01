@@ -16,7 +16,11 @@ declare module 'fabric' {
  */
 function createFabricObjectInternal(spec: CanvasObjectSpec): FabricObject | null {
     let fabricObject: FabricObject | null = null;
-    const metadata = { ...(spec.metadata || {}), id: spec.id };
+    const metadata = { 
+        source: 'assistant', // Default source
+        ...(spec.metadata || {}), // Spread provided metadata (might overwrite source)
+        id: spec.id // Ensure ID is always present and last
+    };
     const baseOptions = {
       left: spec.x,
       top: spec.y,
@@ -118,7 +122,11 @@ function createFabricObjectInternal(spec: CanvasObjectSpec): FabricObject | null
  */
 export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void {
   let fabricObject: FabricObject | null = null;
-  const metadata = { ...(spec.metadata || {}), id: spec.id };
+  const metadata = { 
+      source: 'assistant', // Default source
+      ...(spec.metadata || {}), // Spread provided metadata (might overwrite source)
+      id: spec.id // Ensure ID is always present and last
+  };
 
   try {
     // Base options used by multiple kinds

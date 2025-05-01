@@ -11,7 +11,9 @@ import {
   ExplanationResponse,
   FeedbackResponse,
   type TutorInteractionResponse,
-  MessageResponse
+  MessageResponse,
+  WhiteboardAction,
+  CanvasObjectSpec
 } from '@/lib/types';
 
 // Define more specific connection status types
@@ -36,7 +38,8 @@ export interface TutorStreamHandlers {
   onRunItem?: (item: any) => void;
   onAgentUpdated?: (event: any) => void;
   onUnhandled?: (event: any) => void;
-  onInteractionResponse?: (response: { content_type: string; data: any; user_model_state: any }) => void;
+  onInteractionResponse?: (response: { content_type: string; data: any; user_model_state: any; whiteboard_actions?: WhiteboardAction[] }) => void;
+  onWhiteboardStateReceived?: (actions: WhiteboardAction[]) => void;
 }
 
 export function useTutorStream(
@@ -203,7 +206,21 @@ export function useTutorStream(
       console.log("[WS Parsed Data]:", parsedData); // Log parsed message
 
       // --- Handle specific message types ---
-      console.log("[WS] Raw parsed data:", parsedData); // Log raw structure
+
+      // +++ Handle Whiteboard State Hydration First +++
+      if (parsedData?.type === 'whiteboard_state' && parsedData?.data?.actions) {
+          if (Array.isArray(parsedData.data.actions)) {
+              console.log(`[WS] Received whiteboard_state with ${parsedData.data.actions.length} actions.`);
+              // Pass actions to the dedicated handler if provided
+              handlers.onWhiteboardStateReceived?.(parsedData.data.actions as WhiteboardAction[]);
+          } else {
+              console.warn('[WS] Received whiteboard_state but data.actions is not an array:', parsedData.data.actions);
+          }
+          return; // Handled
+      }
+      // --- End Whiteboard State Handling ---
+
+      console.log("[WS] Raw parsed data (after whiteboard check):", parsedData); // Log raw structure
 
       // Ping/Pong
       if (parsedData?.type === 'pong') {

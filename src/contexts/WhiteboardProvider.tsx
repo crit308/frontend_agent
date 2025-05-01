@@ -56,10 +56,18 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                 });
                break;
              case 'CLEAR_CANVAS':
-               console.log('[WhiteboardProvider] Clearing canvas.');
-               fabricCanvas.clear();
-               // Optional: Reset background if needed
-               // fabricCanvas.setBackgroundColor('#ffffff', fabricCanvas.renderAll.bind(fabricCanvas));
+               console.log('[WhiteboardProvider] Clearing ASSISTANT objects from canvas.');
+               const allObjects = fabricCanvas.getObjects();
+               const assistantObjects = allObjects.filter((obj: any) => obj.metadata?.source === 'assistant');
+               console.log(`[WhiteboardProvider] Found ${assistantObjects.length} assistant objects to remove.`);
+               assistantObjects.forEach(obj => fabricCanvas.remove(obj));
+               // Discard active object if it was removed
+               const activeObject = fabricCanvas.getActiveObject();
+               if (activeObject && assistantObjects.includes(activeObject)) {
+                   fabricCanvas.discardActiveObject();
+               }
+               // Request render after removal
+               fabricCanvas.requestRenderAll(); 
                break;
              default:
                console.warn(`[WhiteboardProvider] Unhandled action type:`, (action as any).type);

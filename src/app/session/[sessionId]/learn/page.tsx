@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import ExplanationViewComponent from '@/components/interaction/ExplanationView';
 import QuestionView from '@/components/views/QuestionView';
-import { FeedbackView, MessageView } from '@/components/OrchestratorViews';
+import FeedbackView from '@/components/views/FeedbackView';
+import MessageView from '@/components/views/MessageView';
 import type {
   ExplanationResponse,
   QuestionResponse,
@@ -34,10 +35,11 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable"
-import { WhiteboardProvider } from '@/contexts/WhiteboardProvider';
+import { WhiteboardProvider, useWhiteboard } from '@/contexts/WhiteboardProvider';
 import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
+import type { WhiteboardAction } from '@/lib/types';
 
-export default function LearnPage() {
+function InnerLearnPage() {
   console.log("LearnPage MOUNTING");
 
   const { sessionId } = useParams() as { sessionId?: string };
@@ -69,8 +71,16 @@ export default function LearnPage() {
   const { session, loading: authLoading } = useAuth();
   const jwt = session?.access_token || '';
 
+  const { dispatchWhiteboardAction } = useWhiteboard();
+
   const streamHandlers = React.useMemo(() => ({
-  }), []);
+    onWhiteboardStateReceived: (actions: WhiteboardAction[]) => {
+        console.log('[LearnPage] Received whiteboard state actions:', actions);
+        if (actions && actions.length > 0) {
+            dispatchWhiteboardAction(actions);
+        }
+    },
+  }), [dispatchWhiteboardAction]);
 
   const { latency } = useTutorStream(sessionId || '', jwt, streamHandlers);
 
@@ -225,58 +235,64 @@ export default function LearnPage() {
   }
 
   return (
-    <WhiteboardProvider>
-      <ResizablePanelGroup
-        direction="horizontal"
-        className="h-screen w-screen bg-background"
-      >
-        <ResizablePanel defaultSize={33} minSize={20} className="flex flex-col">
-          <div className="flex-1 overflow-y-auto p-4">
-            <ChatHistory messages={messages} onNext={() => sendInteraction('next')} />
-          </div>
+    <ResizablePanelGroup
+      direction="horizontal"
+      className="h-screen w-screen bg-background"
+    >
+      <ResizablePanel defaultSize={33} minSize={20} className="flex flex-col">
+        <div className="flex-1 overflow-y-auto p-4">
+          <ChatHistory messages={messages} onNext={() => sendInteraction('next')} />
+        </div>
 
-          <div className="p-4 border-t border-border bg-background">
-            <div className="flex items-center gap-2">
-              <Textarea
-                placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                className="flex-1 resize-none shadow-sm"
-                rows={1}
-                disabled={isInputDisabled}
-              />
-              <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-sm">
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
-          {/* ---- START: Dynamic Rendering Area ---- */}
-          <div className="flex-1 p-4 overflow-y-auto relative"> {/* Make relative for positioning */}
-            {/* Render the Whiteboard component (could be background) */}
-            <div className="absolute inset-0 z-0">
-              <Whiteboard />
-            </div>
-            {/* Render the dynamic content ON TOP of the whiteboard */}
-            <div className="relative z-10">
-              {renderCurrentInteraction()}
-            </div>
-          </div>
-          {/* ---- END: Dynamic Rendering Area ---- */}
-          <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
-            <Button
-              onClick={handleEndSession}
-              variant="destructive"
-              disabled={isEndingSession || connectionStatus !== 'connected'}
-            >
-              {isEndingSession ? <LoadingSpinner size={16}/> : 'End Session & Analyze'}
+        <div className="p-4 border-t border-border bg-background">
+          <div className="flex items-center gap-2">
+            <Textarea
+              placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="flex-1 resize-none shadow-sm"
+              rows={1}
+              disabled={isInputDisabled}
+            />
+            <Button onClick={handleSendMessage} disabled={isInputDisabled || !userInput.trim()} size="icon" className="shadow-sm">
+              <Send className="h-4 w-4" />
             </Button>
           </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </WhiteboardProvider>
+        </div>
+      </ResizablePanel>
+      <ResizableHandle withHandle />
+      <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
+        {/* ---- START: Dynamic Rendering Area ---- */}
+        <div className="flex-1 p-4 overflow-y-auto relative"> {/* Make relative for positioning */}
+          {/* Render the Whiteboard component (could be background) */}
+          <div className="absolute inset-0 z-0">
+            <Whiteboard />
+          </div>
+          {/* Render the dynamic content ON TOP of the whiteboard */}
+          <div className="relative z-10">
+            {renderCurrentInteraction()}
+          </div>
+        </div>
+        {/* ---- END: Dynamic Rendering Area ---- */}
+        <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
+          <Button
+            onClick={handleEndSession}
+            variant="destructive"
+            disabled={isEndingSession || connectionStatus !== 'connected'}
+          >
+            {isEndingSession ? <LoadingSpinner size={16}/> : 'End Session & Analyze'}
+          </Button>
+        </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
-} 
+}
+
+const LearnPage: React.FC = () => (
+  <WhiteboardProvider>
+    <InnerLearnPage />
+  </WhiteboardProvider>
+);
+
+export default LearnPage; 
