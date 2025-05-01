@@ -7,9 +7,10 @@ import { Label } from '@/components/ui/label'; // Assuming shadcn/ui Label
 
 interface QuestionViewProps {
   content: QuestionResponse;
+  onAnswer?: (selectedIndex: number) => void;
 }
 
-export default function QuestionView({ content }: QuestionViewProps) {
+export default function QuestionView({ content, onAnswer }: QuestionViewProps) {
   const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
   const sendInteraction = useSessionStore((state) => state.sendInteraction);
   const loadingState = useSessionStore((state) => state.loadingState); // To disable button while submitting
@@ -22,7 +23,11 @@ export default function QuestionView({ content }: QuestionViewProps) {
       alert('Please select an answer.');
       return;
     }
-    sendInteraction('answer', { answer_index: selectedOptionIndex });
+    if (onAnswer) {
+      onAnswer(selectedOptionIndex);
+    } else {
+      sendInteraction('answer', { answer_index: selectedOptionIndex });
+    }
   };
 
   const handleSelectionChange = (value: string) => {

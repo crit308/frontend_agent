@@ -35,6 +35,7 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable"
 import { WhiteboardProvider } from '@/contexts/WhiteboardProvider';
+import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
 
 export default function LearnPage() {
   console.log("LearnPage MOUNTING");
@@ -170,6 +171,41 @@ export default function LearnPage() {
     }
   }, [handleSendMessage]);
 
+  // --- Component Rendering Logic ---
+  const handleAnswerSubmit = (selectedIndex: number) => {
+    console.log("[LearnPage] Submitting answer index:", selectedIndex);
+    sendInteraction('answer', { answer_index: selectedIndex });
+  };
+
+  const handleNext = () => {
+    console.log("[LearnPage] Sending 'next' interaction");
+    sendInteraction('next');
+  };
+
+  const renderCurrentInteraction = () => {
+    if (!currentInteractionContent) {
+      return <div className="p-4 text-muted-foreground">Waiting for tutor...</div>;
+    }
+    const contentType = currentInteractionContent.response_type;
+    const contentData = currentInteractionContent;
+    console.log(`[LearnPage] Rendering Interaction Type: ${contentType}`);
+    switch (contentType) {
+      case 'explanation':
+        return <ExplanationViewComponent content={contentData as ExplanationResponse} onNext={handleNext} />;
+      case 'question':
+        return <QuestionView content={contentData as QuestionResponse} onAnswer={handleAnswerSubmit} />;
+      case 'feedback':
+        return <FeedbackView feedback={(contentData as FeedbackResponse).feedback} onNext={handleNext} />;
+      case 'message':
+        return <MessageView content={contentData as MessageResponse} />;
+      case 'error':
+        return <div className="p-4 text-red-600">Error: {(contentData as ErrorResponse).message}</div>;
+      default:
+        console.warn(`[LearnPage] Unknown content type to render: ${contentType}`);
+        return <div className="p-4 text-muted-foreground">Waiting for tutor interaction...</div>;
+    }
+  };
+
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen w-screen"><LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} /></div>;
   }
@@ -218,13 +254,18 @@ export default function LearnPage() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
-          <div className="flex-1 bg-white p-4 relative">
-            <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', alignItems: 'center', gap: '5px', zIndex: 10 }}>
-              <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: statusColor }} />
-              <span className="text-xs text-muted-foreground">{connectionStatus}{latency !== null ? ` (${latency}ms)` : ''}</span>
+          {/* ---- START: Dynamic Rendering Area ---- */}
+          <div className="flex-1 p-4 overflow-y-auto relative"> {/* Make relative for positioning */}
+            {/* Render the Whiteboard component (could be background) */}
+            <div className="absolute inset-0 z-0">
+              <Whiteboard />
             </div>
-            <Whiteboard />
+            {/* Render the dynamic content ON TOP of the whiteboard */}
+            <div className="relative z-10">
+              {renderCurrentInteraction()}
+            </div>
           </div>
+          {/* ---- END: Dynamic Rendering Area ---- */}
           <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
             <Button
               onClick={handleEndSession}

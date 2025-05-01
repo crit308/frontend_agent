@@ -1,8 +1,8 @@
-import * as fabric from 'fabric';
-import { CanvasObjectSpec } from '@/lib/types'; // Import shared type
+import { Rect, Circle, Textbox, Line, Path, Group, Image as FabricImage, Object as FabricObject, Canvas } from 'fabric';
+import type { CanvasObjectSpec } from './types';
 
-// Removing module augmentation for now due to issues with namespace import
-/*
+// Re-add module augmentation for metadata property
+// This helps TypeScript understand the custom metadata property we're adding
 declare module 'fabric' {
     namespace fabric {
         interface Object {
@@ -10,142 +10,325 @@ declare module 'fabric' {
         }
     }
 }
-*/
 
-export function createFabricObject(spec: CanvasObjectSpec): fabric.Object {
-    let fabricObj: fabric.Object;
-
-    // Common options applicable to most objects
-    const baseOptions: Partial<fabric.Object> = {
-        left: spec.x,
-        top: spec.y,
-        fill: spec.fill || '#aabbcc', // Default fill
-        stroke: spec.stroke || '#000000',
-        strokeWidth: spec.strokeWidth || 1,
-        angle: spec.angle || 0,
-        selectable: spec.selectable ?? true,
-        evented: spec.evented ?? true,
-        // Remove metadata from here
-        // Origin points can affect positioning, default is top-left
-        // originX: 'left',
-        // originY: 'top',
+/**
+ * Internal helper to create synchronous objects without adding them to canvas.
+ */
+function createFabricObjectInternal(spec: CanvasObjectSpec): FabricObject | null {
+    let fabricObject: FabricObject | null = null;
+    const metadata = { ...(spec.metadata || {}), id: spec.id };
+    const baseOptions = {
+      left: spec.x,
+      top: spec.y,
+      fill: spec.fill,
+      stroke: spec.stroke,
+      strokeWidth: spec.strokeWidth,
+      angle: spec.angle ?? 0,
+      selectable: spec.selectable ?? true,
+      evented: spec.evented ?? false,
+      originX: 'left' as const,
+      originY: 'top' as const,
     };
 
     try {
         switch (spec.kind) {
             case 'rect':
-                fabricObj = new fabric.Rect({
+                fabricObject = new Rect({
                     ...baseOptions,
-                    width: spec.width || 50,
-                    height: spec.height || 50,
+                    width: spec.width ?? 50,
+                    height: spec.height ?? 50,
+                    fill: spec.fill ?? 'transparent',
+                    stroke: spec.stroke ?? 'black',
+                    strokeWidth: spec.strokeWidth ?? 1,
                 });
                 break;
             case 'circle':
-                fabricObj = new fabric.Circle({
+                fabricObject = new Circle({
                     ...baseOptions,
-                    radius: spec.radius || 25,
+                    radius: spec.radius ?? 25,
+                    fill: spec.fill ?? 'transparent',
+                    stroke: spec.stroke ?? 'black',
+                    strokeWidth: spec.strokeWidth ?? 1,
                 });
                 break;
-            case 'textbox': // Use Textbox for editable text
-                fabricObj = new fabric.Textbox(spec.text || 'Text', {
+            case 'textbox':
+                fabricObject = new Textbox(spec.text ?? 'Text', {
                     ...baseOptions,
-                    width: spec.width || 150, // Textbox often needs an initial width
-                    fontSize: spec.fontSize || 16,
-                    fontFamily: spec.fontFamily || 'Arial',
-                    fill: spec.fill || '#333333', // Default text fill can differ
+                    width: spec.width ?? 100,
+                    fontSize: spec.fontSize ?? 16,
+                    fontFamily: spec.fontFamily ?? 'Arial',
+                    fill: spec.fill ?? 'black',
+                    strokeWidth: spec.strokeWidth ?? 0,
+                    stroke: undefined,
                 });
                 break;
-            case 'line':
-                // Fabric line constructor takes [x1, y1, x2, y2]
-                // spec.points could be [x1, y1, x2, y2] or [{x: x1, y: y1}, {x: x2, y: y2}]
-                let linePoints: number[];
-                if (Array.isArray(spec.points) && spec.points.length === 4 && typeof spec.points[0] === 'number') {
-                    linePoints = spec.points as number[];
-                } else if (Array.isArray(spec.points) && spec.points.length === 2 && typeof spec.points[0] === 'object') {
-                    const p1 = spec.points[0] as { x: number, y: number };
-                    const p2 = spec.points[1] as { x: number, y: number };
-                    linePoints = [p1.x, p1.y, p2.x, p2.y];
-                } else {
-                    console.warn(`[fabricFactory] Invalid points for line ID ${spec.id}. Using default line.`);
-                    linePoints = [spec.x, spec.y, spec.x + 50, spec.y + 50]; // Default line from spec x/y
+            case 'line': { 
+                let linePoints: [number, number, number, number] = [0, 0, 50, 50];
+                if (Array.isArray(spec.points)) {
+                    if (spec.points.length === 4 && typeof spec.points[0] === 'number') {
+                         linePoints = spec.points as [number, number, number, number];
+                     } else if (spec.points.length === 2 && typeof spec.points[0] === 'object' && spec.points[0] !== null && 'x' in spec.points[0]) {
+                         const p1 = spec.points[0] as { x: number; y: number };
+                         const p2 = spec.points[1] as { x: number; y: number };
+                         linePoints = [p1.x, p1.y, p2.x, p2.y];
+                     }
                 }
-                // Cast linePoints to the expected tuple type
-                fabricObj = new fabric.Line(linePoints as [number, number, number, number], {
-                    ...baseOptions, // Base options like stroke, strokeWidth apply
-                    // Note: left/top in baseOptions set the *bounding box* top-left for Line.
-                    // The line points themselves define the line position relative to the canvas origin.
+                fabricObject = new Line(linePoints, {
+                  stroke: spec.stroke ?? 'black',
+                  strokeWidth: spec.strokeWidth ?? 2,
+                  angle: spec.angle ?? 0,
+                  left: spec.x,
+                  top: spec.y,
+                  selectable: spec.selectable ?? true,
+                  evented: spec.evented ?? false,
                 });
                 break;
-             case 'path':
-                 // Assuming spec.points is a string like "M 0 0 L 100 100 Z"
-                 if (typeof spec.points === 'string') {
-                     fabricObj = new fabric.Path(spec.points, {
-                         ...baseOptions,
-                     });
-                 } else {
-                     console.warn(`[fabricFactory] Invalid points (expected string) for path ID ${spec.id}. Creating default rect.`);
-                     fabricObj = new fabric.Rect({ ...baseOptions, width: 30, height: 30, fill: 'red' });
+            }
+            case 'path': { 
+                 if (typeof spec.points !== 'string') {
+                     console.error(`[InternalFactory] Path requires string points, got:`, spec.points);
+                     return null;
                  }
+                 fabricObject = new Path(spec.points, {
+                   ...baseOptions,
+                   fill: spec.fill,
+                   stroke: spec.stroke ?? 'black',
+                   strokeWidth: spec.strokeWidth ?? 1,
+                 });
                  break;
-            // Add cases for 'polygon', etc. as needed
+            }
+            // IMPORTANT: Exclude 'group', 'image', 'arrow', 'radio', 'checkbox' or any complex/async types here
             default:
-                console.warn(`[fabricFactory] Unsupported object kind: ${spec.kind} for ID ${spec.id}. Creating simple rect.`);
-                fabricObj = new fabric.Rect({ ...baseOptions, width: 50, height: 50 });
+                console.warn(`[InternalFactory] Unsupported sync kind: ${spec.kind} (ID: ${spec.id})`);
+                return null;
+        }
+        if (fabricObject) {
+            (fabricObject as any).metadata = metadata;
         }
     } catch (error) {
-        console.error(`[fabricFactory] Error creating object ID ${spec.id} (Kind: ${spec.kind}):`, error);
-        fabricObj = new fabric.Rect({ left: 0, top: 0, width: 10, height: 10, fill: 'red' });
-        fabricObj.set('metadata', { id: spec.id, error: true, kind: spec.kind });
+        console.error(`[InternalFactory] Error creating object (kind: ${spec.kind}, id: ${spec.id}):`, error);
+        return null;
     }
-
-    // Set metadata using obj.set() after object is created, if not already set by error fallback
-    if (fabricObj && !fabricObj.get('metadata')) {
-         fabricObj.set('metadata', { ...(spec.metadata || {}), id: spec.id });
-    }
-
-    return fabricObj;
+    return fabricObject;
 }
 
-// Helper to update existing objects
-export function updateFabricObject(obj: fabric.Object, spec: Partial<CanvasObjectSpec>): void {
-     // Create an options object excluding non-updatable/special keys - using Partial<fabric.Object>
-     const updateOptions: Partial<fabric.Object> = {};
-     let requiresRerender = false;
+/**
+ * Creates and adds a Fabric.js object to the canvas based on the specification.
+ * Handles asynchronous loading for images.
+ */
+export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void {
+  let fabricObject: FabricObject | null = null;
+  const metadata = { ...(spec.metadata || {}), id: spec.id };
 
-     for (const key in spec) {
-         if (key !== 'id' && key !== 'kind' && key !== 'metadata') {
-              // Only assign if the property exists on the object
-              if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                // @ts-ignore
-                updateOptions[key] = spec[key];
-                requiresRerender = true;
-              }
-         }
-     }
+  try {
+    // Base options used by multiple kinds
+    const baseOptions = {
+      left: spec.x,
+      top: spec.y,
+      fill: spec.fill,
+      stroke: spec.stroke,
+      strokeWidth: spec.strokeWidth,
+      angle: spec.angle ?? 0,
+      selectable: spec.selectable ?? true,
+      evented: spec.evented ?? false,
+      originX: 'left' as const,
+      originY: 'top' as const,
+    };
 
-     if (Object.keys(updateOptions).length > 0) {
-         console.log(`[fabricFactory] Updating object ID ${obj.get('metadata')?.id} with options:`, updateOptions);
-         obj.set(updateOptions);
-         obj.setCoords();
-     }
+    switch (spec.kind) {
+      // --- Basic Shapes (Use Internal Helper for consistency, but create here) ---
+      case 'rect':
+      case 'circle':
+      case 'textbox':
+      case 'line':
+      case 'path':
+        fabricObject = createFabricObjectInternal(spec);
+        break;
 
-     // Update metadata separately if provided (merge with existing)
-     if (spec.metadata) {
-         const currentMetadata = obj.get('metadata') || {};
-         obj.set('metadata', { ...currentMetadata, ...spec.metadata, id: currentMetadata?.id || spec.id });
-         requiresRerender = true;
-         console.log(`[fabricFactory] Updated metadata for object ID ${obj.get('metadata')?.id}`);
-     }
+      // --- Complex Shapes / Async --- 
+      case 'group': {
+        console.log(`[fabricFactory] Creating group: ${spec.id}`);
+        const groupObjects: FabricObject[] = [];
+        if (Array.isArray(spec.objects)) { // Assuming group items are in spec.objects
+          spec.objects.forEach((itemSpec: CanvasObjectSpec) => {
+             // Recursively create objects *without* adding them to canvas yet
+             const itemObject = createFabricObjectInternal(itemSpec);
+             if (itemObject) {
+                 groupObjects.push(itemObject);
+             }
+          });
+        }
+        if (groupObjects.length > 0) {
+            fabricObject = new Group(groupObjects, {
+                ...baseOptions, // Apply group-level position, angle etc.
+                // Optional: Adjust left/top based on group contents if needed
+            });
+        } else {
+            console.warn(`[fabricFactory] Group ${spec.id} has no valid objects.`);
+        }
+        break;
+      }
+      case 'image': { // Asynchronous
+        if (!spec.src) {
+            console.error(`Image object (ID: ${spec.id}) requires a 'src' property.`);
+            return; // Don't proceed
+        }
+        console.log(`[fabricFactory] Loading image: ${spec.id} from ${spec.src}`);
+        // @ts-expect-error Fabric.js type definitions for fromURL callback are incorrect; this works at runtime.
+        FabricImage.fromURL(spec.src, (img) => {
+            if (!img) {
+                console.error(`Failed to load image (ID: ${spec.id}) from ${spec.src}`);
+                return;
+            }
+            console.log(`[fabricFactory] Image loaded: ${spec.id}`);
+            img.set({
+                ...baseOptions,
+                width: spec.width,
+                height: spec.height,
+            });
+            (img as any).metadata = metadata;
+            canvas.add(img);
+            canvas.requestRenderAll();
+        }, {}); // Re-added empty options object
+        return; // Exit void function - handled async
+      }
+      case 'arrow': {
+          // Simple arrow: Line + potential arrowhead logic (future)
+          let linePoints: [number, number, number, number] = [0, 0, 50, 0]; // Default horizontal arrow
+          if (Array.isArray(spec.points)) { // Re-use line logic for points
+              if (spec.points.length === 4 && typeof spec.points[0] === 'number') {
+                 linePoints = spec.points as [number, number, number, number];
+              } else if (spec.points.length === 2 && typeof spec.points[0] === 'object' && spec.points[0] !== null && 'x' in spec.points[0]) {
+                 const p1 = spec.points[0] as { x: number; y: number };
+                 const p2 = spec.points[1] as { x: number; y: number };
+                 linePoints = [p1.x, p1.y, p2.x, p2.y];
+             }
+          }
+          fabricObject = new Line(linePoints, {
+              stroke: spec.stroke ?? 'black',
+              strokeWidth: spec.strokeWidth ?? 2,
+              angle: spec.angle ?? 0,
+              left: spec.x,
+              top: spec.y,
+              selectable: spec.selectable ?? true,
+              evented: spec.evented ?? false,
+              // TODO: Add arrowhead marker (e.g., using Path or Triangle)
+          });
+          break;
+      }
+      case 'radio':
+      case 'checkbox': {
+          const isRadio = spec.kind === 'radio';
+          const size = spec.size ?? 12; // Use spec.size or a default
+          const shape = isRadio
+              ? new Circle({ radius: size / 2, fill: 'white', stroke: 'black', strokeWidth: 1 })
+              : new Rect({ width: size, height: size, fill: 'white', stroke: 'black', strokeWidth: 1, rx: 2, ry: 2 }); // Checkbox with slight rounding
+
+          const label = spec.text ? new Textbox(spec.text, {
+              left: size + 5, // Position label next to shape
+              top: -size / 4, // Adjust vertical alignment
+              fontSize: spec.fontSize ?? 14,
+              fontFamily: spec.fontFamily ?? 'Arial',
+              fill: spec.fill ?? 'black',
+              selectable: false, // Label usually not selectable itself
+              evented: false,
+          }) : null;
+
+          // Explicitly type the array to allow different object types
+          const itemsToGroup: FabricObject[] = [shape]; 
+          if (label) itemsToGroup.push(label);
+
+          // Create the group using baseOptions for overall positioning
+          fabricObject = new Group(itemsToGroup, {
+              ...baseOptions,
+              // Group positioning is controlled by baseOptions.left/top
+              // Ensure sub-objects within the group use relative positioning (handled by default)
+              selectable: spec.selectable ?? true, // Group selectability
+              evented: spec.evented ?? true, // Allow clicks on the group
+          });
+          break;
+      }
+      default:
+        // Removed exhaustive check for now, rely on warning
+        // const _exhaustiveCheck: never = spec.kind; 
+        console.warn(`[fabricFactory] Unsupported object kind: ${spec.kind} (ID: ${spec.id})`);
+        return; // Exit void function
+    }
+
+    // Add the synchronously created object to canvas (if not handled async)
+    if (fabricObject) {
+      (fabricObject as any).metadata = metadata; // Assign metadata
+      canvas.add(fabricObject);
+    }
+
+  } catch (error) {
+    console.error(`Error creating Fabric object (kind: ${spec.kind}, id: ${spec.id}):`, error);
+  }
+  // No explicit return needed (void function)
 }
 
-// Helper to delete objects by custom metadata ID
-export function deleteFabricObject(canvas: fabric.Canvas, idToDelete: string): void {
-     const objectsToDelete = canvas.getObjects().filter(o => o.get('metadata')?.id === idToDelete);
-     if (objectsToDelete.length > 0) {
-         console.log(`[fabricFactory] Deleting ${objectsToDelete.length} object(s) with ID ${idToDelete}`);
-         objectsToDelete.forEach(obj => canvas.remove(obj));
-         canvas.requestRenderAll(); // Request render after removal
-     } else {
-         console.warn(`[fabricFactory] No objects found with ID ${idToDelete} to delete.`);
-     }
+/**
+ * Updates an existing Fabric.js object based on the provided specification.
+ * Only updates properties present in the spec.
+ */
+export function updateFabricObject(obj: FabricObject, spec: Partial<CanvasObjectSpec>): void {
+  if (!obj) return;
+  const updateOptions: Partial<FabricObject> = {};
+  let requiresCoordsUpdate = false;
+  for (const key in spec) {
+    if (!Object.prototype.hasOwnProperty.call(spec, key)) continue;
+    const specKey = key as keyof CanvasObjectSpec;
+    if (specKey === 'id' || specKey === 'kind') continue;
+    if (specKey === 'metadata') {
+      const currentMetadata = (obj as any).metadata || {};
+      const newMetadata = { ...currentMetadata, ...(spec.metadata || {}) };
+      (obj as any).metadata = newMetadata;
+      continue;
+    }
+    if (specKey === 'x') {
+      updateOptions.left = spec.x;
+      requiresCoordsUpdate = true;
+    } else if (specKey === 'y') {
+      updateOptions.top = spec.y;
+      requiresCoordsUpdate = true;
+    } else if (specKey === 'points') {
+      // Not directly settable, see note above
+      continue;
+    } else {
+      (updateOptions as any)[specKey] = spec[specKey];
+      if ([
+        'left', 'top', 'width', 'height', 'scaleX', 'scaleY', 'angle', 'skewX', 'skewY', 'radius'
+      ].includes(specKey)) {
+        requiresCoordsUpdate = true;
+      }
+    }
+  }
+  if (Object.keys(updateOptions).length > 0) {
+    obj.set(updateOptions);
+  }
+  if (requiresCoordsUpdate && typeof obj.setCoords === 'function') {
+    obj.setCoords();
+  }
+}
+
+/**
+ * Deletes a Fabric.js object from the canvas by its ID (stored in metadata).
+ */
+export function deleteFabricObject(canvas: Canvas, idToDelete: string): boolean {
+  if (!canvas || !idToDelete) return false;
+  const objectsToDelete = canvas.getObjects().filter((o: any) => o.metadata?.id === idToDelete);
+  if (objectsToDelete.length === 0) {
+    return false;
+  }
+  objectsToDelete.forEach((obj: any) => {
+    canvas.remove(obj);
+  });
+  if (canvas.getActiveObject()) {
+    const activeObj = canvas.getActiveObject();
+    if (activeObj && objectsToDelete.includes(activeObj as any)) {
+      canvas.discardActiveObject();
+    }
+  }
+  canvas.requestRenderAll();
+  return true;
 } 

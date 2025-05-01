@@ -198,7 +198,9 @@ export function useTutorStream(
     };
     ws.onmessage = (event) => {
       if (wsRef.current !== ws || !isComponentMountedRef.current) { console.log("[WebSocket] Ignoring message from stale connection or unmounted component."); return; }
+      console.log("[WS Received Raw]:", event.data); // Log raw message
       let parsedData; try { parsedData = JSON.parse(event.data); } catch (e) { console.error('[WS] message parse error', e); handlers.onError?.(e); updateStatus('error', { message: 'Received invalid message format.' }); return; }
+      console.log("[WS Parsed Data]:", parsedData); // Log parsed message
 
       // --- Handle specific message types ---
       console.log("[WS] Raw parsed data:", parsedData); // Log raw structure
@@ -250,7 +252,7 @@ export function useTutorStream(
         // Update Zustand store using functional update
         setSessionState((prevState) => {
             let newError: StructuredError | null = null;
-            let newLoadingState: LoadingState = 'idle';
+            let newLoadingState: LoadingState = 'idle'; // Always set to idle after response
             let newMessages = prevState.messages; // Start with existing messages
 
             // Initialize update object
@@ -304,7 +306,10 @@ export function useTutorStream(
                             id: Date.now().toString() + Math.random().toString(36).substring(2), // Add randomness to avoid collisions
                             role: 'assistant',
                             content: messageContentString, // Use extracted string content
-                            interaction: interactionToAdd // Store the original interaction object
+                            interaction: interactionToAdd, // Store the original interaction object
+                            ...(interactionToAdd && 'whiteboard_actions' in interactionToAdd && Array.isArray((interactionToAdd as any).whiteboard_actions)
+                                ? { whiteboard_actions: (interactionToAdd as any).whiteboard_actions }
+                                : {})
                         };
                         newMessages = [...prevState.messages, messageToAdd];
                         update.messages = newMessages; // Include updated messages in the update object
@@ -320,7 +325,7 @@ export function useTutorStream(
                     console.error('[WS Store Update] Received error:', errorPayload.message, errorPayload.details);
                     newError = { message: errorPayload.message, code: errorPayload.error_code };
                     update.error = newError;
-                    update.loadingState = 'error';
+                    update.loadingState = 'error'; // Set to error on error response
                     update.currentInteractionContent = errorPayload; // Set error content
 
                     // Add error message to the chat history

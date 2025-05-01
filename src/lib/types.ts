@@ -95,6 +95,9 @@ export interface CanvasObjectSpec {
   angle?: number;
   selectable?: boolean;
   evented?: boolean; // Typically false for AI drawings?
+  src?: string; // For image
+  objects?: CanvasObjectSpec[]; // For group
+  size?: number; // For radio/checkbox etc.
   metadata?: { // Add metadata field
     source: 'assistant' | 'user';
   };
@@ -104,7 +107,8 @@ export interface CanvasObjectSpec {
 export type WhiteboardAction =
   | { type: "ADD_OBJECTS"; objects: CanvasObjectSpec[] }
   | { type: "UPDATE_OBJECTS"; objects: Partial<CanvasObjectSpec>[] } // Use Partial for updates
-  | { type: "DELETE_OBJECTS"; ids: string[] };
+  | { type: "DELETE_OBJECTS"; ids: string[] }
+  | { type: "CLEAR_CANVAS" }; // Added clear action
 // --- End Whiteboard Types ---
 
 // --- MODIFIED LessonContent Interface ---

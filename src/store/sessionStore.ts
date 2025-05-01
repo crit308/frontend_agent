@@ -14,7 +14,8 @@ import {
   UserInteractionOutcome,
   FocusObjective,
   TutorInteractionResponse,
-  ErrorResponse
+  ErrorResponse,
+  WhiteboardAction
 } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
@@ -35,6 +36,7 @@ export interface ChatMessage {
   content: string; // Always the string representation for basic display
   interaction?: TutorInteractionResponse | ErrorResponse | null; // Store the original interaction object for assistant messages
   isLoading?: boolean; // Optional loading state
+  whiteboard_actions?: WhiteboardAction[]; // Optional whiteboard actions at the top level
 }
 
 // Export the LoadingState type as well

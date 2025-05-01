@@ -36,15 +36,15 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
       try {
            switch (action.type) {
              case 'ADD_OBJECTS':
-               const objectsToAdd = action.objects.map(createFabricObject); // Use factory
-               fabricCanvas.add(...objectsToAdd);
+               // Factory now adds objects directly (especially for async like images)
+               action.objects.forEach(spec => createFabricObject(fabricCanvas, spec));
                break;
              case 'UPDATE_OBJECTS':
-                action.objects.forEach((updateSpec: Partial<CanvasObjectSpec>) => { // Type hint for updateSpec
-                    // Find object by custom metadata ID
-                    const obj = fabricCanvas.getObjects().find((o: fabric.Object) => o.get('metadata')?.id === updateSpec.id);
+                action.objects.forEach((updateSpec: Partial<CanvasObjectSpec>) => {
+                   // Find object by custom metadata ID (accessing metadata correctly)
+                   const obj = fabricCanvas.getObjects().find((o: any) => o.metadata?.id === updateSpec.id);
                     if(obj) {
-                        updateFabricObject(obj, updateSpec); // Use factory helper
+                         updateFabricObject(obj, updateSpec); // Use factory helper
                     } else {
                         console.warn(`[WhiteboardProvider] Object with ID ${updateSpec.id} not found for update.`);
                     }
@@ -55,13 +55,25 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                    deleteFabricObject(fabricCanvas, idToDelete); // Use factory helper
                 });
                break;
+             case 'CLEAR_CANVAS':
+               console.log('[WhiteboardProvider] Clearing canvas.');
+               fabricCanvas.clear();
+               // Optional: Reset background if needed
+               // fabricCanvas.setBackgroundColor('#ffffff', fabricCanvas.renderAll.bind(fabricCanvas));
+               break;
+             default:
+               console.warn(`[WhiteboardProvider] Unhandled action type:`, (action as any).type);
            }
       } catch (error) {
            console.error("[WhiteboardProvider] Error dispatching whiteboard action:", action, error);
       }
     });
 
-    fabricCanvas.requestRenderAll(); // Render changes after processing actions
+    // Render changes unless it was just a clear (clear already triggers render implicitly or via background set)
+    if (actions.length > 0 && !actions.every(a => a.type === 'CLEAR_CANVAS')) {
+        fabricCanvas.requestRenderAll();
+    }
+
   }, [fabricCanvas]); // Dependency: fabricCanvas
 
   const value = { fabricCanvas, setFabricCanvas, dispatchWhiteboardAction };

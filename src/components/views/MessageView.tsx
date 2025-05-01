@@ -1,7 +1,7 @@
 import React from 'react';
 import type { MessageResponse } from '@/lib/types';
 
-interface MessageViewProps {
+export interface MessageViewProps {
   content: MessageResponse;
 }
 
