@@ -3,19 +3,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
-import ExplanationViewComponent from '@/components/interaction/ExplanationView';
-import QuestionView from '@/components/views/QuestionView';
-import FeedbackView from '@/components/views/FeedbackView';
-import MessageView from '@/components/views/MessageView';
-import type {
-  ExplanationResponse,
-  QuestionResponse,
-  FeedbackResponse,
-  MessageResponse,
-  ErrorResponse,
-  TutorInteractionResponse,
-  QuizFeedbackItem
-} from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTutorStream } from '../../../../../lib/useTutorStream';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -192,30 +179,6 @@ function InnerLearnPage() {
     sendInteraction('next');
   };
 
-  const renderCurrentInteraction = () => {
-    if (!currentInteractionContent) {
-      return <div className="p-4 text-muted-foreground">Waiting for tutor...</div>;
-    }
-    const contentType = currentInteractionContent.response_type;
-    const contentData = currentInteractionContent;
-    console.log(`[LearnPage] Rendering Interaction Type: ${contentType}`);
-    switch (contentType) {
-      case 'explanation':
-        return <ExplanationViewComponent content={contentData as ExplanationResponse} onNext={handleNext} />;
-      case 'question':
-        return <QuestionView content={contentData as QuestionResponse} onAnswer={handleAnswerSubmit} />;
-      case 'feedback':
-        return <FeedbackView feedback={(contentData as FeedbackResponse).item} onNext={handleNext} />;
-      case 'message':
-        return <MessageView content={contentData as MessageResponse} />;
-      case 'error':
-        return <div className="p-4 text-red-600">Error: {(contentData as ErrorResponse).message}</div>;
-      default:
-        console.warn(`[LearnPage] Unknown content type to render: ${contentType}`);
-        return <div className="p-4 text-muted-foreground">Waiting for tutor interaction...</div>;
-    }
-  };
-
   if (isLoading) {
     return <div className="flex items-center justify-center h-screen w-screen"><LoadingSpinner message={connectionStatus === 'connecting' ? "Connecting..." : connectionStatus === 'reconnecting' ? "Reconnecting..." : "Initializing Session..."} /></div>;
   }
@@ -239,11 +202,11 @@ function InnerLearnPage() {
       direction="horizontal"
       className="h-screen w-screen bg-background"
     >
+      {/* Chat Panel: 1/3 width */}
       <ResizablePanel defaultSize={33} minSize={20} className="flex flex-col">
         <div className="flex-1 overflow-y-auto p-4">
           <ChatHistory messages={messages} onNext={() => sendInteraction('next')} />
         </div>
-
         <div className="p-4 border-t border-border bg-background">
           <div className="flex items-center gap-2">
             <Textarea
@@ -262,19 +225,11 @@ function InnerLearnPage() {
         </div>
       </ResizablePanel>
       <ResizableHandle withHandle />
+      {/* Whiteboard Panel: 2/3 width */}
       <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
-        {/* ---- START: Dynamic Rendering Area ---- */}
-        <div className="flex-1 p-4 overflow-y-auto relative"> {/* Make relative for positioning */}
-          {/* Render the Whiteboard component (could be background) */}
-          <div className="absolute inset-0 z-0">
-            <Whiteboard />
-          </div>
-          {/* Render the dynamic content ON TOP of the whiteboard */}
-          <div className="relative z-10">
-            {renderCurrentInteraction()}
-          </div>
+        <div className="flex-1 p-4 overflow-y-auto relative">
+          <Whiteboard />
         </div>
-        {/* ---- END: Dynamic Rendering Area ---- */}
         <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
           <Button
             onClick={handleEndSession}

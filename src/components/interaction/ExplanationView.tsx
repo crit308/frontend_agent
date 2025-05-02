@@ -10,12 +10,14 @@ interface ExplanationViewProps {
 }
 
 export function ExplanationViewComponent({ content, onNext }: ExplanationViewProps) {
-  const explanationText = content.text;
+  const { explanation_text, explanation_title, topic } = content as any;
 
   return (
     <div className="p-4 space-y-4 prose dark:prose-invert max-w-none">
       <h2 className="text-xl font-semibold">Explanation</h2>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{explanationText || ''}</ReactMarkdown>
+      <div className="prose prose-blue max-w-none">
+        <p className="whitespace-pre-wrap">{explanation_text}</p>
+      </div>
       {!content.is_last_segment && (
         <Button onClick={onNext}>Next</Button>
       )}

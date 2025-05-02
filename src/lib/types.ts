@@ -261,10 +261,11 @@ export interface InteractionRequestData {
 // --- Orchestrator response models ---
 export interface ExplanationResponse {
   response_type: 'explanation';
-  text: string;
-  topic: string;
-  segment_index: number;
-  is_last_segment: boolean;
+  explanation_text: string;
+  explanation_title: string | null;
+  topic?: string | null;
+  segment_index?: number;
+  is_last_segment?: boolean;
   references?: string[];
 }
 export interface QuestionResponse {

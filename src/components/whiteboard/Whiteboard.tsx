@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import * as fabric from 'fabric';
+import type { TEvent } from 'fabric';
 import { useWhiteboard } from '@/contexts/WhiteboardProvider'; // Import the hook
 import { useSessionStore } from '@/store/sessionStore'; // Import sendInteraction
 
@@ -17,23 +18,25 @@ const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ sessionId }) => {
   const sendInteraction = useSessionStore((state) => state.sendInteraction); // Get sendInteraction from store
 
   // --- Handler for canvas object clicks ---
-  const handleCanvasClick = React.useCallback((opt: fabric.IEvent<MouseEvent>) => {
+  const handleCanvasClick = React.useCallback((opt: any) => {
     const target = opt.target;
     // Check if the clicked target is a fabric object and has a metadata ID
-    if (target && target.metadata?.id) {
+    if (target && target.metadata) {
+      // MCQ Option Selector
+      if (target.metadata.role === 'option_selector' && typeof target.metadata.option_id !== 'undefined') {
+        console.log(`[Whiteboard] Option selector clicked. Option ID: ${target.metadata.option_id}`);
+        sendInteraction('answer', { answer_index: target.metadata.option_id });
+        return;
+      }
+      // Generic object click
+      if (target.metadata.id) {
         const objectId = target.metadata.id;
         console.log(`[Whiteboard] Canvas object clicked. ID: ${objectId}`);
-
-        // Send the canvas_click interaction to the backend
         sendInteraction('canvas_click' as any, { object_id: objectId });
-
-        // Optional: Add brief visual feedback (e.g., slight scale up/down)
-        // target.animate('scaleX', 1.1, { duration: 100, onChange: target.canvas?.renderAll.bind(target.canvas), onComplete: () => target.animate('scaleX', 1, { duration: 100, onChange: target.canvas?.renderAll.bind(target.canvas) }) });
-        // target.animate('scaleY', 1.1, { duration: 100, onChange: target.canvas?.renderAll.bind(target.canvas), onComplete: () => target.animate('scaleY', 1, { duration: 100, onChange: target.canvas?.renderAll.bind(target.canvas) }) });
-
-    } else {
-         console.log("[Whiteboard] Clicked on canvas background or object without ID.");
+        return;
+      }
     }
+    console.log("[Whiteboard] Clicked on canvas background or object without actionable metadata.");
   }, [sendInteraction]);
 
   useEffect(() => {

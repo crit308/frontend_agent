@@ -15,6 +15,7 @@ import {
   WhiteboardAction,
   CanvasObjectSpec
 } from '@/lib/types';
+import { useWhiteboard } from '@/contexts/WhiteboardProvider';
 
 // Define more specific connection status types
 type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'auth_error';
@@ -59,6 +60,7 @@ export function useTutorStream(
   const [latency, setLatency] = useState<number | null>(null);
   const pingTimestampRef = useRef<number | null>(null);
   const isMountedEffectRef = useRef(false); // Tracks if the *current* instance's effect is active
+  const { dispatchWhiteboardAction } = useWhiteboard();
 
   // --- Use stable references for store actions ---
   const registerWebSocketSend = useSessionStore.getState().registerWebSocketSend;
@@ -250,13 +252,39 @@ export function useTutorStream(
 
       // --- Handle InteractionResponseData structure ---
       // Check if it matches the expected wrapper structure
-      if (parsedData && typeof parsedData === 'object' &&
-          'content_type' in parsedData &&
-          'data' in parsedData && // Ensure data exists
-          'user_model_state' in parsedData) // Check only top-level keys
-      {
-        const interactionResponse = parsedData as InteractionResponseData; // Type assertion
+      if (
+        parsedData && typeof parsedData === 'object' &&
+        'content_type' in parsedData &&
+        'data' in parsedData &&
+        'user_model_state' in parsedData
+      ) {
+        // --- Runtime validation for structure ---
+        const hasValidContentType = typeof parsedData.content_type === 'string';
+        const hasValidData = typeof parsedData.data === 'object' && parsedData.data !== null;
+        const hasValidUserModelState = typeof parsedData.user_model_state === 'object' && parsedData.user_model_state !== null;
+        if (!hasValidContentType || !hasValidData || !hasValidUserModelState) {
+          console.warn('[WS Validation] Invalid InteractionResponseData structure:', {
+            hasValidContentType,
+            hasValidData,
+            hasValidUserModelState,
+            parsedData
+          });
+          // Optionally, call error handler or show toast
+          handlers.onError?.(new Error('Invalid InteractionResponseData structure received.'));
+          return;
+        }
+        const interactionResponse = parsedData as InteractionResponseData; // Type assertion after validation
         console.log(`[WS] Received InteractionResponse: type=${interactionResponse.content_type}`);
+
+        // --- Whiteboard Action Dispatch ---
+        if (interactionResponse.whiteboard_actions && Array.isArray(interactionResponse.whiteboard_actions)) {
+          try {
+            dispatchWhiteboardAction(interactionResponse.whiteboard_actions);
+            console.log('[WS] Dispatched whiteboard actions:', interactionResponse.whiteboard_actions);
+          } catch (err) {
+            console.error('[WS] Error dispatching whiteboard actions:', err);
+          }
+        }
 
         // Extract the relevant parts
         const contentType = interactionResponse.content_type;
@@ -422,7 +450,7 @@ export function useTutorStream(
     if (wsRef.current !== ws) {
       console.warn("[WebSocket] wsRef.current was potentially overwritten immediately after creation. Race condition?");
     }
-  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus]);
+  }, [sessionId, jwt, handlers, registerWebSocketSend, sendMessage, toast, setSessionState, getState, updateStatus, dispatchWhiteboardAction]);
 
   // --- Main Effect for Connection Management ---
   useEffect(() => {
