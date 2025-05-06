@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import type { QuestionResponse } from '@/lib/types';
 import { useSessionStore } from '@/store/sessionStore';
-import { Button } from '@/components/ui/button'; // Assuming shadcn/ui Button
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Assuming shadcn/ui RadioGroup
-import { Label } from '@/components/ui/label'; // Assuming shadcn/ui Label
+import { Button } from '@/components/ui/button';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 
 interface QuestionViewProps {
   content: QuestionResponse;
@@ -13,13 +13,16 @@ interface QuestionViewProps {
 export default function QuestionView({ content, onAnswer }: QuestionViewProps) {
   const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
   const sendInteraction = useSessionStore((state) => state.sendInteraction);
-  const loadingState = useSessionStore((state) => state.loadingState); // To disable button while submitting
+  const loadingState = useSessionStore((state) => state.loadingState);
 
-  const question = content.question;
+  const question = content.question_data;
+
+  if (!question) {
+    return <div className="p-4 text-red-500">Error: Question data is missing.</div>;
+  }
 
   const handleSubmit = () => {
     if (selectedOptionIndex === null) {
-      // Optionally, show an error message or prevent submission
       alert('Please select an answer.');
       return;
     }
@@ -39,8 +42,8 @@ export default function QuestionView({ content, onAnswer }: QuestionViewProps) {
       {content.topic && (
          <h3 className="text-lg font-semibold text-yellow-800 mb-2">Topic: {content.topic}</h3>
       )}
-       {content.context && (
-         <p className="text-sm text-gray-600 mb-3 italic">Context: {content.context}</p>
+       {content.context_summary && (
+         <p className="text-sm text-gray-600 mb-3 italic">Context: {content.context_summary}</p>
       )}
       <p className="text-base font-medium text-gray-900">{question.question}</p>
 

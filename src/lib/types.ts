@@ -270,9 +270,10 @@ export interface ExplanationResponse {
 }
 export interface QuestionResponse {
   response_type: 'question';
-  question: QuizQuestion;
+  question_data: QuizQuestion;
   topic: string;
-  context?: string;
+  context_summary?: string | null;
+  question_type?: string;
 }
 export interface FeedbackResponse {
   response_type: 'feedback';
