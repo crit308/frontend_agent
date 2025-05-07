@@ -25,6 +25,7 @@ import {
 import { WhiteboardProvider, useWhiteboard } from '@/contexts/WhiteboardProvider';
 import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
 import type { WhiteboardAction } from '@/lib/types';
+import { WhiteboardModeToggle } from '@/components/ui/WhiteboardModeToggle';
 
 function InnerLearnPage() {
   console.log("LearnPage MOUNTING");
@@ -43,6 +44,7 @@ function InnerLearnPage() {
     sendInteraction,
     sessionEndedConfirmed,
     messages,
+    whiteboardMode,
   } = useSessionStore(
     useShallow((state: SessionState) => ({
       currentInteractionContent: state.currentInteractionContent,
@@ -52,6 +54,7 @@ function InnerLearnPage() {
       sendInteraction: state.sendInteraction,
       sessionEndedConfirmed: state.sessionEndedConfirmed,
       messages: state.messages,
+      whiteboardMode: state.whiteboardMode,
     }))
   );
 
@@ -208,6 +211,9 @@ function InnerLearnPage() {
           <ChatHistory messages={messages} onNext={() => sendInteraction('next')} />
         </div>
         <div className="p-4 border-t border-border bg-background">
+          <div className="flex items-center gap-2 mb-2">
+            <WhiteboardModeToggle />
+          </div>
           <div className="flex items-center gap-2">
             <Textarea
               placeholder={isInputDisabled ? "Connecting or processing..." : "Type your message..."}
@@ -226,20 +232,24 @@ function InnerLearnPage() {
       </ResizablePanel>
       <ResizableHandle withHandle />
       {/* Whiteboard Panel: 2/3 width */}
-      <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
-        <div className="flex-1 p-4 overflow-y-auto relative">
-          <Whiteboard />
-        </div>
-        <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
-          <Button
-            onClick={handleEndSession}
-            variant="destructive"
-            disabled={isEndingSession || connectionStatus !== 'connected'}
-          >
-            {isEndingSession ? <LoadingSpinner size={16}/> : 'End Session & Analyze'}
-          </Button>
-        </div>
-      </ResizablePanel>
+      {whiteboardMode === 'chat_and_whiteboard' && (
+        <>
+          <ResizablePanel defaultSize={67} minSize={30} className="flex flex-col">
+            <div className="flex-1 p-4 overflow-y-auto relative">
+              <Whiteboard />
+            </div>
+            <div className="p-2 border-t border-border flex justify-end gap-2 bg-background">
+              <Button
+                onClick={handleEndSession}
+                variant="destructive"
+                disabled={isEndingSession || connectionStatus !== 'connected'}
+              >
+                {isEndingSession ? <LoadingSpinner size={16}/> : 'End Session & Analyze'}
+              </Button>
+            </div>
+          </ResizablePanel>
+        </>
+      )}
     </ResizablePanelGroup>
   );
 }

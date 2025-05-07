@@ -74,6 +74,9 @@ export interface SessionState {
   // NEW: Array to hold chat history
   messages: ChatMessage[];
 
+  // Whiteboard mode
+  whiteboardMode: 'chat_only' | 'chat_and_whiteboard';
+
   // Actions
   setSessionId: (sessionId: string) => void;
   setSelectedFolderId: (folderId: string | null) => void;
@@ -86,6 +89,7 @@ export interface SessionState {
   setLoadingMessage: (message: string) => void;
   setUser: (user: User | null) => void;
   setFocusObjective: (focus: FocusObjective) => void;
+  setWhiteboardMode: (mode: SessionState['whiteboardMode']) => void;
 
   // WebSocket Actions
   registerWebSocketSend: (sendFn: (payload: any) => void) => void;
@@ -126,6 +130,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // NEW: Initialize messages array
   messages: [],
 
+  // Whiteboard mode initial state
+  whiteboardMode: 'chat_and_whiteboard',
+
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setSelectedFolderId: (folderId) => set({ folderId }),
@@ -137,6 +144,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setIsSubmittingQuiz: (isSubmitting) => set({ isSubmittingQuiz: isSubmitting }),
   setLoadingMessage: (message) => set({ loadingMessage: message }),
   setFocusObjective: (focus) => set({ focusObjective: focus }),
+  setWhiteboardMode: (mode) => set({ whiteboardMode: mode }),
 
   // WebSocket Action Implementations
   registerWebSocketSend: (sendFn) => set({ webSocketSendFunction: sendFn }),
@@ -144,7 +152,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   // --- REVISED Interaction Logic ---
   sendInteraction: async (type, data) => {
-      const { sessionId, webSocketSendFunction } = get();
+      const { sessionId, webSocketSendFunction, whiteboardMode } = get();
       if (!sessionId) {
           set({ error: { message: "No active session." }, loadingState: 'error' });
           return;
@@ -161,6 +169,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           // Construct the payload based on type
           let payload;
           let userMessage: ChatMessage | null = null;
+
+          // Base data to include in all messages that need it
+          const baseData = {
+            ...(data || {}),
+            whiteboard_mode: whiteboardMode,
+          };
+
           if (type === 'user_message') {
               // Ensure data exists and has a 'text' property
               const text = data?.text;
@@ -169,15 +184,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   set({ error: { message: "Invalid message format." }, loadingState: 'error', loadingMessage: '' });
                   return;
               }
-              payload = { type: type, data: { text: text } };
-              // Create user message object to add to state
+              // Construct payload for user_message, ensuring text is at the top level of data if needed by BE
+              // For now, assuming whiteboard_mode is part of the general data object
+              payload = { type: type, data: { text: text, whiteboard_mode: whiteboardMode } }; 
               userMessage = {
                 id: Date.now().toString(), // Simple ID for now
                 role: 'user',
                 content: text,
               };
+          } else if (type === 'start' || type === 'next' || type === 'previous' || type === 'answer' || type === 'summary' || type === 'end_session') {
+              payload = { type: type, data: baseData };
           } else {
-              payload = { type: type, data: data || {} };
+             // Should not happen with defined types, but as a fallback
+             console.warn(`Store: Unhandled interaction type for adding whiteboard_mode: ${type}`);
+             payload = { type: type, data: data || {} };
           }
           
           console.log("Store: Calling registered WebSocket send function with payload:", payload);
@@ -218,5 +238,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     webSocketSendFunction: null,
     connectionStatus: 'idle',
     sessionEndedConfirmed: false,
+    whiteboardMode: 'chat_and_whiteboard',
   }),
 }));

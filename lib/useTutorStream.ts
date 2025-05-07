@@ -213,7 +213,6 @@ export function useTutorStream(
       if (parsedData?.type === 'whiteboard_state' && parsedData?.data?.actions) {
           if (Array.isArray(parsedData.data.actions)) {
               console.log(`[WS] Received whiteboard_state with ${parsedData.data.actions.length} actions.`);
-              // Pass actions to the dedicated handler if provided
               handlers.onWhiteboardStateReceived?.(parsedData.data.actions as WhiteboardAction[]);
           } else {
               console.warn('[WS] Received whiteboard_state but data.actions is not an array:', parsedData.data.actions);
@@ -306,82 +305,61 @@ export function useTutorStream(
                 loadingState: newLoadingState,
                 loadingMessage: '',
                 error: newError, // Reset error on successful interaction
-                // Initialize with the NEW dataPayload by default
                 currentInteractionContent: dataPayload as TutorInteractionResponse | null,
                 sessionEndedConfirmed: prevState.sessionEndedConfirmed, // Preserve existing value
             };
 
+            let messageContentString = "Assistant message processed."; // Fallback
+            let assistantInteractionForMessage: TutorInteractionResponse | null = dataPayload as TutorInteractionResponse;
+
             // --- Handle different content types ---
             switch (contentType) {
-                case 'explanation':
-                case 'question':
-                case 'feedback':
-                case 'message':
-                    // The default update already sets currentInteractionContent correctly
+                case 'explanation': {
+                    const explanationData = dataPayload as ExplanationResponse;
+                    messageContentString = explanationData.explanation_text || "Explanation received.";
+                    assistantInteractionForMessage = explanationData;
                     console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
-                     // Add the NEW interaction content to the messages array
-                    try {
-                        const interactionToAdd = dataPayload as TutorInteractionResponse;
-
-                        // --- EXTRACT STRING CONTENT --- START
-                        let messageContentString = "Assistant message received."; // Fallback
-                        if ('text' in interactionToAdd && typeof interactionToAdd.text === 'string') {
-                            messageContentString = interactionToAdd.text;
-                        } else if ('question' in interactionToAdd && typeof interactionToAdd.question?.question === 'string') {
-                            // Basic question text for chat history
-                            messageContentString = `Question: ${interactionToAdd.question.question}`;
-                            if (interactionToAdd.question.options && Array.isArray(interactionToAdd.question.options)) {
-                                const options = interactionToAdd.question.options.map((opt, i) => `\n${i + 1}. ${opt}`).join('');
-                                messageContentString += options;
-                            }
-                        } else if ('feedback' in interactionToAdd && interactionToAdd.feedback) {
-                            // Basic feedback text for chat history
-                            const fb = interactionToAdd.feedback;
-                            const correctness = fb.is_correct ? 'Correct' : 'Incorrect';
-                            messageContentString = `Feedback (${correctness}): Regarding "${fb.question_text}"`;
-                            if (fb.explanation) {
-                                messageContentString += `\nExplanation: ${fb.explanation}`;
-                            }
-                        }
-                        // Add more cases here if other response types need specific string formatting
-                        // --- EXTRACT STRING CONTENT --- END
-
-                        // Simple timestamp ID - consider using a UUID library later if needed
-                        const messageToAdd: ChatMessage = {
-                            id: Date.now().toString() + Math.random().toString(36).substring(2), // Add randomness to avoid collisions
-                            role: 'assistant',
-                            content: messageContentString, // Use extracted string content
-                            interaction: interactionToAdd, // Store the original interaction object
-                            ...(interactionToAdd && 'whiteboard_actions' in interactionToAdd && Array.isArray((interactionToAdd as any).whiteboard_actions)
-                                ? { whiteboard_actions: (interactionToAdd as any).whiteboard_actions }
-                                : {})
-                        };
-                        newMessages = [...prevState.messages, messageToAdd];
-                        update.messages = newMessages; // Include updated messages in the update object
-                        console.log(`[WS Store Update] Added assistant message to history. New count: ${newMessages.length}`);
-                    } catch (error) {
-                        console.error("[WS Store Update] Error creating or adding assistant message:", error, dataPayload);
-                        // Decide if you want to set an error state here or just log
-                    }
                     break;
-
-                case 'error':
+                }
+                case 'message': {
+                    const messageData = dataPayload as MessageResponse;
+                    messageContentString = messageData.text || "Message received.";
+                    assistantInteractionForMessage = messageData;
+                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
+                    break;
+                }
+                case 'question': {
+                    const questionData = dataPayload as QuestionResponse;
+                    assistantInteractionForMessage = questionData;
+                    messageContentString = `Question: ${questionData.question_data.question}`;
+                    if (questionData.question_data.options && Array.isArray(questionData.question_data.options)) {
+                        const options = questionData.question_data.options.map((opt: string, i: number) => `\n${i + 1}. ${opt}`).join('');
+                        messageContentString += options;
+                    }
+                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
+                    break;
+                }
+                case 'feedback': {
+                    const feedbackData = dataPayload as FeedbackResponse;
+                    assistantInteractionForMessage = feedbackData;
+                    const fbItem = feedbackData.feedback;
+                    const correctness = fbItem.is_correct ? 'Correct' : 'Incorrect';
+                    messageContentString = `Feedback (${correctness}): Regarding "${fbItem.question_text}"`;
+                    if (fbItem.explanation) {
+                        messageContentString += `\nExplanation: ${fbItem.explanation}`;
+                    }
+                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
+                    break;
+                }
+                case 'error': {
                     const errorPayload = dataPayload as ErrorResponse;
                     console.error('[WS Store Update] Received error:', errorPayload.message, errorPayload.details);
                     newError = { message: errorPayload.message, code: errorPayload.error_code };
                     update.error = newError;
                     update.loadingState = 'error'; // Set to error on error response
                     update.currentInteractionContent = errorPayload; // Set error content
-
-                    // Add error message to the chat history
-                    const errorMessageToAdd: ChatMessage = {
-                        id: Date.now().toString() + Math.random().toString(36).substring(2),
-                        role: 'assistant',
-                        content: `Error: ${errorPayload.message}`,
-                        interaction: errorPayload // Store the error object
-                    };
-                    newMessages = [...prevState.messages, errorMessageToAdd];
-                    // No need to set update.messages here, it's handled below
+                    assistantInteractionForMessage = errorPayload;
+                    messageContentString = `Error: ${errorPayload.message}`;
 
                     toast({
                         title: `Tutor Error${errorPayload.error_code ? ` (${errorPayload.error_code})` : ''}`,
@@ -391,38 +369,42 @@ export function useTutorStream(
                         action: getAnalysisAction(),
                     });
                     break;
-
+                }
                 case 'session_ended':
                     console.log("[WS Store Update] Received session_ended confirmation.");
                     update.sessionEndedConfirmed = true;
                     update.loadingState = 'idle';
                     update.currentInteractionContent = null; // Clear content on session end
-
-                    // Add Session Ended system message to history
-                    const endMessageToAdd: ChatMessage = {
-                        id: Date.now().toString() + Math.random().toString(36).substring(2),
-                        role: 'assistant', // Or maybe a 'system' role if you add it
-                        content: 'Session ended.',
-                        interaction: null // No specific interaction object for this
-                    };
-                    newMessages = [...prevState.messages, endMessageToAdd];
-                    // No need to set update.messages here, it's handled below
-
+                    assistantInteractionForMessage = null; // No specific interaction object for this system message
+                    messageContentString = 'Session ended.';
                     break;
 
                 default:
                     console.warn(`[WS Store Update] Unhandled content_type: ${contentType}`, parsedData);
                     update.currentInteractionContent = null; // Clear for unhandled types
+                    assistantInteractionForMessage = null; 
+                    messageContentString = `Received unhandled message type: ${contentType}`;
             }
 
-            // Update messages only if they changed
-            if (newMessages !== prevState.messages) {
-                 update.messages = newMessages;
+            // Add assistant message to history (unless it's a type we don't want to show or it's null)
+            if (assistantInteractionForMessage || contentType === 'session_ended' || contentType === 'error') { // session_ended is a special case message
+                 try {
+                    const messageToAdd: ChatMessage = {
+                        id: Date.now().toString() + Math.random().toString(36).substring(2),
+                        role: 'assistant',
+                        content: messageContentString,
+                        interaction: assistantInteractionForMessage,
+                        whiteboard_actions: interactionResponse.whiteboard_actions || undefined, // Get from the outer response
+                    };
+                    newMessages = [...prevState.messages, messageToAdd];
+                    update.messages = newMessages;
+                    console.log(`[WS Store Update] Added assistant message to history. New count: ${newMessages.length}`);
+                } catch (error) {
+                    console.error("[WS Store Update] Error creating or adding assistant message:", error, dataPayload);
+                }
             }
-
-
+            
             console.log("[WS Store Update] Final state update object:", update);
-            // Apply the updates to the previous state
             return { ...prevState, ...update };
         });
 
