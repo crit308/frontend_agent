@@ -186,4 +186,42 @@ export function getCanvasStateAsSpecs(canvas: Canvas): CanvasObjectSpec[] {
     });
 
     return specs;
+}
+
+export async function renderLatexToSvg(latexString: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('../workers/katexWorker.ts', import.meta.url), {
+      type: 'module'
+    });
+
+    const uniqueId = `katex-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.id === uniqueId) {
+        worker.removeEventListener('message', handleMessage); // Clean up listener
+        worker.terminate(); // Terminate worker after use
+        if (event.data.type === 'RENDER_RESULT') {
+          if (event.data.error) {
+            console.error('KaTeX rendering error:', event.data.error);
+            reject(new Error(event.data.error));
+          } else {
+            resolve(event.data.svg);
+          }
+        } else {
+          // Should not happen if worker logic is correct
+          reject(new Error('Unexpected message from KaTeX worker'));
+        }
+      }
+    };
+
+    worker.addEventListener('message', handleMessage);
+    worker.addEventListener('error', (err) => {
+        console.error('KaTeX worker error:', err);
+        worker.removeEventListener('message', handleMessage); // Clean up listener
+        worker.terminate(); // Terminate worker
+        reject(new Error(`Worker error: ${err.message}`));
+    });
+
+    worker.postMessage({ type: 'RENDER_LATEX', latex: latexString, id: uniqueId });
+  });
 } 

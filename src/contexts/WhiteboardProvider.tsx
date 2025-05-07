@@ -5,6 +5,8 @@ import * as fabric from 'fabric';
 import { WhiteboardAction, CanvasObjectSpec } from '@/lib/types'; // Added CanvasObjectSpec for Update
 import { createFabricObject, updateFabricObject, deleteFabricObject } from '@/lib/fabricObjectFactory'; // Import factory (to be created)
 import { useSessionStore } from '@/store/sessionStore'; // Import useSessionStore
+import { renderLatexToSvg } from '@/lib/whiteboardUtils'; // Added for LaTeX rendering
+import { calculateAbsoluteCoords } from '@/lib/whiteboardUtils'; // Ensure this is imported if used for coords
 
 interface WhiteboardContextType {
   fabricCanvas: fabric.Canvas | null;
@@ -27,7 +29,7 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
      console.log("[WhiteboardProvider] Fabric Canvas instance also set in Zustand store.");
   }, [setFabricCanvasInstanceInStore]);
 
-  const dispatchWhiteboardAction = useCallback((actionOrActions: WhiteboardAction | WhiteboardAction[]) => {
+  const dispatchWhiteboardAction = useCallback(async (actionOrActions: WhiteboardAction | WhiteboardAction[]) => {
     if (!fabricCanvasInternalState) { // Use the internal state for guard
       console.warn('dispatchWhiteboardAction called before canvas is ready.');
       // TODO: Queue actions? Or rely on re-render after canvas is set?
@@ -37,12 +39,76 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
     const actions = Array.isArray(actionOrActions) ? actionOrActions : [actionOrActions];
     console.log(`[WhiteboardProvider] Dispatching ${actions.length} actions:`, actions);
 
-    actions.forEach(action => {
+    for (const action of actions) {
       try {
            switch (action.type) {
              case 'ADD_OBJECTS':
-               // Factory now adds objects directly (especially for async like images)
-               action.objects.forEach(spec => createFabricObject(fabricCanvasInternalState, spec));
+               for (const spec of action.objects) {
+                 if (spec.kind === 'latex_svg') {
+                   if (spec.metadata?.latex) {
+                     try {
+                       const htmlSvgString = await renderLatexToSvg(spec.metadata.latex);
+                       fabric.loadSVGFromString(htmlSvgString, (loadedObjects: any, options: any) => {
+                         const fabricObjects = loadedObjects as fabric.Object[]; // Cast to fabric.Object[]
+                         if (fabricObjects && fabricObjects.length > 0) {
+                           const group = new fabric.Group(fabricObjects, {
+                             left: (typeof spec.x === 'number') ? spec.x : 0,
+                             top: (typeof spec.y === 'number') ? spec.y : 0,
+                           });
+
+                           const currentSpecX = spec.x; // Capture spec.x for type guarding
+                           const currentSpecY = spec.y; // Capture spec.y for type guarding
+
+                           const coordSpec: Partial<CanvasObjectSpec> & { xPct?: number, yPct?: number } = { 
+                               ...spec,
+                               x: (typeof currentSpecX === 'number') ? currentSpecX : 0,
+                               y: (typeof currentSpecY === 'number') ? currentSpecY : 0,
+                           }; 
+
+                           if (typeof currentSpecX === 'string' && currentSpecX.endsWith('%')) {
+                               coordSpec.xPct = parseFloat(currentSpecX) / 100;
+                           }
+                           if (typeof currentSpecY === 'string' && currentSpecY.endsWith('%')) {
+                               coordSpec.yPct = parseFloat(currentSpecY) / 100;
+                           }
+
+                           if (fabricCanvasInternalState && fabricCanvasInternalState.width && fabricCanvasInternalState.height) {
+                             const { x: absX, y: absY } = calculateAbsoluteCoords(
+                                 coordSpec as CanvasObjectSpec,
+                                 fabricCanvasInternalState.width,
+                                 fabricCanvasInternalState.height
+                             );
+                             group.set({ left: absX, top: absY });
+                           } else {
+                               console.warn('[WhiteboardProvider] Canvas dimensions not available for absolute coordinate calculation for LaTeX object.');
+                               group.set({ 
+                                   left: coordSpec.xPct ? coordSpec.xPct * (fabricCanvasInternalState?.width || 0) : coordSpec.x,
+                                   top: coordSpec.yPct ? coordSpec.yPct * (fabricCanvasInternalState?.height || 0) : coordSpec.y
+                               });
+                           }
+                           
+                           (group as any).metadata = { 
+                               ...spec.metadata, 
+                               id: spec.id, 
+                               source: spec.metadata?.source,
+                               fabricObject: group,
+                               kind: 'latex_svg'
+                           };
+                           fabricCanvasInternalState.add(group);
+                         } else {
+                           console.warn('[WhiteboardProvider] No objects loaded from SVG/HTML for LaTeX spec:', spec);
+                         }
+                       });
+                     } catch (error) {
+                       console.error('[WhiteboardProvider] Error rendering or loading LaTeX SVG/HTML:', error, spec);
+                     }
+                   } else {
+                     console.warn('[WhiteboardProvider] LaTeX SVG spec missing metadata.latex:', spec);
+                   }
+                 } else {
+                   createFabricObject(fabricCanvasInternalState, spec);
+                 }
+               }
                break;
              case 'UPDATE_OBJECTS':
                 action.objects.forEach((updateSpec: Partial<CanvasObjectSpec>) => {
@@ -154,11 +220,11 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
       } catch (error) {
            console.error("[WhiteboardProvider] Error dispatching whiteboard action:", action, error);
       }
-    });
+    }
 
-    // Render changes unless it was just a clear (clear already triggers render implicitly or via background set)
+    // Render changes after all actions in the batch have been processed
     if (actions.length > 0 && !actions.every(a => a.type === 'CLEAR_CANVAS')) {
-        fabricCanvasInternalState.requestRenderAll();
+      fabricCanvasInternalState.requestRenderAll();
     }
 
   }, [fabricCanvasInternalState]); // Dependency: fabricCanvasInternalState
