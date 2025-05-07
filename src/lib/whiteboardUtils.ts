@@ -10,46 +10,106 @@ import {
     Image as FabricImage,
     Pattern
 } from 'fabric';
-import type { CanvasObjectSpec } from './types';
+import type { CanvasObjectSpec, NodeSpec, EdgeSpec } from './types';
 
 export function calculateAbsoluteCoords(
     spec: CanvasObjectSpec,
     canvasWidth: number,
     canvasHeight: number
 ): { x: number; y: number; width?: number; height?: number; metadataPctCoords?: NonNullable<CanvasObjectSpec['metadata']>['pctCoords'] } {
-    let x = spec.x;
-    let y = spec.y;
-    let width = spec.width;
-    let height = spec.height;
+    let xNum: number | undefined = undefined;
+    let yNum: number | undefined = undefined;
+    let widthNum: number | undefined = undefined;
+    let heightNum: number | undefined = undefined;
+
     const pctCoordsStore: NonNullable<CanvasObjectSpec['metadata']>['pctCoords'] = {};
 
+    // Handle X coordinate
     if (spec.xPct !== undefined && spec.xPct !== null) {
-        x = spec.xPct * canvasWidth;
+        xNum = spec.xPct * canvasWidth;
         pctCoordsStore.xPct = spec.xPct;
-    }
-    if (spec.yPct !== undefined && spec.yPct !== null) {
-        y = spec.yPct * canvasHeight;
-        pctCoordsStore.yPct = spec.yPct;
-    }
-    if (spec.widthPct !== undefined && spec.widthPct !== null && width === undefined) {
-        width = spec.widthPct * canvasWidth;
-        pctCoordsStore.widthPct = spec.widthPct;
-    }
-    if (spec.heightPct !== undefined && spec.heightPct !== null && height === undefined) {
-        height = spec.heightPct * canvasHeight;
-        pctCoordsStore.heightPct = spec.heightPct;
+    } else if (typeof spec.x === 'string') {
+        if (spec.x.endsWith('%')) {
+            const val = parseFloat(spec.x);
+            if (!isNaN(val)) {
+                xNum = (val / 100) * canvasWidth;
+                pctCoordsStore.xPct = val / 100;
+            }
+        } else {
+            const val = parseFloat(spec.x);
+            if (!isNaN(val)) xNum = val;
+        }
+    } else if (typeof spec.x === 'number') {
+        xNum = spec.x;
     }
 
-    const finalX = x === undefined ? 0 : x;
-    const finalY = y === undefined ? 0 : y;
+    // Handle Y coordinate
+    if (spec.yPct !== undefined && spec.yPct !== null) {
+        yNum = spec.yPct * canvasHeight;
+        pctCoordsStore.yPct = spec.yPct;
+    } else if (typeof spec.y === 'string') {
+        if (spec.y.endsWith('%')) {
+            const val = parseFloat(spec.y);
+            if (!isNaN(val)) {
+                yNum = (val / 100) * canvasHeight;
+                pctCoordsStore.yPct = val / 100;
+            }
+        } else {
+            const val = parseFloat(spec.y);
+            if (!isNaN(val)) yNum = val;
+        }
+    } else if (typeof spec.y === 'number') {
+        yNum = spec.y;
+    }
+
+    // Handle Width
+    if (spec.widthPct !== undefined && spec.widthPct !== null) {
+        widthNum = spec.widthPct * canvasWidth;
+        pctCoordsStore.widthPct = spec.widthPct;
+    } else if (typeof spec.width === 'string') {
+        if (spec.width.endsWith('%')) {
+            const val = parseFloat(spec.width);
+            if (!isNaN(val)) {
+                widthNum = (val / 100) * canvasWidth;
+                pctCoordsStore.widthPct = val / 100;
+            }
+        } else {
+            const val = parseFloat(spec.width);
+            if (!isNaN(val)) widthNum = val;
+        }
+    } else if (typeof spec.width === 'number') {
+        widthNum = spec.width;
+    }
+
+    // Handle Height
+    if (spec.heightPct !== undefined && spec.heightPct !== null) {
+        heightNum = spec.heightPct * canvasHeight;
+        pctCoordsStore.heightPct = spec.heightPct;
+    } else if (typeof spec.height === 'string') {
+        if (spec.height.endsWith('%')) {
+            const val = parseFloat(spec.height);
+            if (!isNaN(val)) {
+                heightNum = (val / 100) * canvasHeight;
+                pctCoordsStore.heightPct = val / 100;
+            }
+        } else {
+            const val = parseFloat(spec.height);
+            if (!isNaN(val)) heightNum = val;
+        }
+    } else if (typeof spec.height === 'number') {
+        heightNum = spec.height;
+    }
+
+    const finalX = xNum === undefined ? 0 : xNum;
+    const finalY = yNum === undefined ? 0 : yNum;
     
     const hasPctCoords = Object.keys(pctCoordsStore).length > 0;
 
     return {
         x: finalX,
         y: finalY,
-        width,
-        height,
+        width: widthNum, // widthNum is already number | undefined
+        height: heightNum, // heightNum is already number | undefined
         ...(hasPctCoords && { metadataPctCoords: pctCoordsStore })
     };
 }
@@ -223,5 +283,52 @@ export async function renderLatexToSvg(latexString: string): Promise<string> {
     });
 
     worker.postMessage({ type: 'RENDER_LATEX', latex: latexString, id: uniqueId });
+  });
+}
+
+export async function getGraphLayout(
+  nodes: NodeSpec[], 
+  edges: EdgeSpec[], 
+  layoutType: string = 'layered' // Default layout type
+): Promise<{ [nodeId: string]: { x: number; y: number } }> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('../workers/layoutWorker.ts', import.meta.url), {
+      type: 'module'
+    });
+
+    const uniqueId = `layout-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.id === uniqueId) {
+        worker.removeEventListener('message', handleMessage); // Clean up listener
+        worker.terminate(); // Terminate worker after use
+        if (event.data.type === 'LAYOUT_RESULT') {
+          if (event.data.error) {
+            console.error('Layout worker error:', event.data.error);
+            reject(new Error(event.data.error));
+          } else {
+            resolve(event.data.positions);
+          }
+        } else {
+          reject(new Error('Unexpected message from layout worker'));
+        }
+      }
+    };
+
+    worker.addEventListener('message', handleMessage);
+    worker.addEventListener('error', (err) => {
+      console.error('Layout worker instance error:', err);
+      worker.removeEventListener('message', handleMessage); // Clean up listener
+      worker.terminate(); // Terminate worker
+      reject(new Error(`Layout Worker error: ${err.message}`));
+    });
+
+    worker.postMessage({ 
+      type: 'LAYOUT_GRAPH', 
+      nodes, 
+      edges, 
+      layoutType, 
+      id: uniqueId 
+    });
   });
 } 

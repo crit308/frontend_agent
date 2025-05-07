@@ -7,6 +7,8 @@ import { createFabricObject, updateFabricObject, deleteFabricObject } from '@/li
 import { useSessionStore } from '@/store/sessionStore'; // Import useSessionStore
 import { renderLatexToSvg } from '@/lib/whiteboardUtils'; // Added for LaTeX rendering
 import { calculateAbsoluteCoords } from '@/lib/whiteboardUtils'; // Ensure this is imported if used for coords
+import { getGraphLayout } from '@/lib/whiteboardUtils'; // Added for graph layout
+import type { NodeSpec, EdgeSpec } from '@/lib/types'; // Added for graph layout
 
 interface WhiteboardContextType {
   fabricCanvas: fabric.Canvas | null;
@@ -104,6 +106,116 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                      }
                    } else {
                      console.warn('[WhiteboardProvider] LaTeX SVG spec missing metadata.latex:', spec);
+                   }
+                 } else if (spec.kind === 'graph_layout') {
+                   if (spec.metadata?.layoutSpec && fabricCanvasInternalState) {
+                     const layoutSpec = spec.metadata.layoutSpec as { nodes: NodeSpec[], edges: EdgeSpec[], layoutType?: string, graphId?: string };
+                     if (layoutSpec.nodes && layoutSpec.edges) {
+                       try {
+                         const nodePositions = await getGraphLayout(layoutSpec.nodes, layoutSpec.edges, layoutSpec.layoutType || 'layered');
+                         const fabricObjectsInGraph: fabric.Object[] = [];
+                         const canvas = fabricCanvasInternalState; // Alias for clarity
+
+                         // Create Fabric objects for nodes
+                         layoutSpec.nodes.forEach(nodeSpec => {
+                           const pos = nodePositions[nodeSpec.id];
+                           if (pos) {
+                             const nodeRect = new fabric.Rect({
+                               left: pos.x,
+                               top: pos.y,
+                               width: nodeSpec.width,
+                               height: nodeSpec.height,
+                               fill: 'lightblue', // Default fill
+                               stroke: 'blue',    // Default stroke
+                               strokeWidth: 2,
+                               originX: 'left', 
+                               originY: 'top',
+                             });
+                             const nodeLabel = new fabric.Textbox(nodeSpec.label || nodeSpec.id, {
+                               left: pos.x + nodeSpec.width / 2,
+                               top: pos.y + nodeSpec.height / 2,
+                               width: nodeSpec.width - 10, // Padding
+                               fontSize: 16,
+                               textAlign: 'center',
+                               originX: 'center',
+                               originY: 'center',
+                               selectable: false,
+                             });
+                             const nodeGroup = new fabric.Group([nodeRect, nodeLabel], {
+                               left: pos.x, 
+                               top: pos.y,
+                               selectable: true,
+                               evented: true,
+                               metadata: { 
+                                   id: nodeSpec.id, 
+                                   kind: 'graph_node', 
+                                   parentGraphId: spec.id, // Link to the main graph ID
+                                   ...(nodeSpec.metadata || {}) 
+                               }
+                             });
+                             fabricObjectsInGraph.push(nodeGroup);
+                           }
+                         });
+
+                         // Create Fabric objects for edges
+                         layoutSpec.edges.forEach(edgeSpec => {
+                           const sourcePos = nodePositions[edgeSpec.source];
+                           const targetPos = nodePositions[edgeSpec.target];
+                           const sourceNode = layoutSpec.nodes.find(n => n.id === edgeSpec.source);
+                           const targetNode = layoutSpec.nodes.find(n => n.id === edgeSpec.target);
+
+                           if (sourcePos && targetPos && sourceNode && targetNode) {
+                             // Calculate center points of nodes for edge connection
+                             const x1 = sourcePos.x + sourceNode.width / 2;
+                             const y1 = sourcePos.y + sourceNode.height / 2;
+                             const x2 = targetPos.x + targetNode.width / 2;
+                             const y2 = targetPos.y + targetNode.height / 2;
+
+                             const edgeLine = new fabric.Line([x1, y1, x2, y2], {
+                               stroke: 'gray',
+                               strokeWidth: 2,
+                               selectable: false,
+                               evented: false,
+                               metadata: { 
+                                   id: edgeSpec.id, 
+                                   kind: 'graph_edge', 
+                                   parentGraphId: spec.id, // Link to the main graph ID
+                                   ...(edgeSpec.metadata || {}) 
+                               }
+                             });
+                             fabricObjectsInGraph.push(edgeLine);
+                             // TODO: Add arrowheads if needed
+                           }
+                         });
+                         
+                         // Optionally, group all created nodes and edges into one encompassing group
+                         if (fabricObjectsInGraph.length > 0) {
+                           if (spec.metadata?.combineIntoGroup || true) { // Default to grouping them
+                               const entireGraphGroup = new fabric.Group(fabricObjectsInGraph, {
+                                   // Position of the group can be based on the overall bounding box or spec.x, spec.y
+                                   left: spec.x as number || 0, // Use graph spec x/y if provided
+                                   top: spec.y as number || 0,
+                                   metadata: {
+                                       id: spec.id, // The ID of the 'graph_layout' spec itself
+                                       kind: 'graph_group', // Distinguish this group
+                                       source: spec.metadata?.source,
+                                       layoutAlgorithm: layoutSpec.layoutType || 'layered'
+                                   }
+                               });
+                               canvas.add(entireGraphGroup);
+                           } else {
+                                fabricObjectsInGraph.forEach(obj => canvas.add(obj));
+                           }
+                         }
+
+                       } catch (error) {
+                         console.error('[WhiteboardProvider] Error processing graph layout:', error, spec);
+                       }
+                     } else {
+                       console.warn('[WhiteboardProvider] Graph layout spec missing nodes or edges:', spec);
+                     }
+                   } else {
+                     console.warn('[WhiteboardProvider] Graph layout spec missing metadata.layoutSpec or canvas not ready:', spec);
                    }
                  } else {
                    createFabricObject(fabricCanvasInternalState, spec);
