@@ -1,4 +1,5 @@
-import { Rect, Circle, Textbox, Line, Path, Group, Image as FabricImage, Object as FabricObject, Canvas } from 'fabric';
+import { Rect, Circle, Textbox, Line, Path, Group, Image as FabricImage, Object as FabricObject, Canvas, Pattern } from 'fabric';
+import { fabric } from 'fabric';
 import type { CanvasObjectSpec } from './types';
 
 // Re-add module augmentation for metadata property
@@ -322,21 +323,139 @@ export function updateFabricObject(obj: FabricObject, spec: Partial<CanvasObject
 /**
  * Deletes a Fabric.js object from the canvas by its ID (stored in metadata).
  */
-export function deleteFabricObject(canvas: Canvas, idToDelete: string): boolean {
-  if (!canvas || !idToDelete) return false;
-  const objectsToDelete = canvas.getObjects().filter((o: any) => o.metadata?.id === idToDelete);
-  if (objectsToDelete.length === 0) {
-    return false;
-  }
-  objectsToDelete.forEach((obj: any) => {
-    canvas.remove(obj);
-  });
-  if (canvas.getActiveObject()) {
-    const activeObj = canvas.getActiveObject();
-    if (activeObj && objectsToDelete.includes(activeObj as any)) {
-      canvas.discardActiveObject();
+export function deleteFabricObject(canvas: fabric.Canvas, idToDelete: string): boolean {
+    const objects = canvas.getObjects();
+    const objectToDelete = objects.find(obj => (obj as any).metadata?.id === idToDelete);
+    if (objectToDelete) {
+        canvas.remove(objectToDelete);
+        canvas.requestRenderAll();
+        return true;
     }
-  }
-  canvas.requestRenderAll();
-  return true;
+    return false;
+}
+
+export function getCanvasStateAsSpecs(canvas: fabric.Canvas): CanvasObjectSpec[] {
+    const specs: CanvasObjectSpec[] = [];
+    const objects = canvas.getObjects();
+
+    objects.forEach((obj: fabric.Object) => {
+        const metadata = (obj as any).metadata || {};
+        const id = metadata.id;
+
+        if (!id) {
+            console.warn("[getCanvasStateAsSpecs] Object found without metadata.id, skipping:", obj);
+            return;
+        }
+
+        let kind = obj.type || 'unknown';
+        if (obj.type === 'i-text' || obj.type === 'text') kind = 'textbox';
+        if (obj.type === 'image') kind = 'image';
+        if (metadata.kind) {
+            kind = metadata.kind;
+        }
+
+        const commonSpec: Partial<CanvasObjectSpec> = {
+            id: id,
+            kind: kind,
+            x: obj.left,
+            y: obj.top,
+            width: obj.width ? obj.width * (obj.scaleX || 1) : undefined,
+            height: obj.height ? obj.height * (obj.scaleY || 1) : undefined,
+            fill: obj.fill instanceof fabric.Pattern ? undefined : obj.fill as string || undefined,
+            stroke: obj.stroke as string || undefined,
+            strokeWidth: obj.strokeWidth,
+            angle: obj.angle,
+            selectable: obj.selectable,
+            evented: obj.evented,
+            metadata: { ...metadata },
+        };
+
+        let objectSpec: CanvasObjectSpec;
+
+        switch (obj.type) {
+            case 'rect':
+                objectSpec = { ...commonSpec, kind: 'rect' } as CanvasObjectSpec;
+                break;
+            case 'circle':
+                objectSpec = {
+                    ...commonSpec,
+                    kind: 'circle',
+                    radius: (obj as fabric.Circle).radius ? (obj as fabric.Circle).radius * Math.max(obj.scaleX || 1, obj.scaleY || 1) : undefined,
+                } as CanvasObjectSpec;
+                break;
+            case 'i-text':
+            case 'textbox':
+            case 'text':
+                const fabricText = obj as fabric.Textbox;
+                objectSpec = {
+                    ...commonSpec,
+                    kind: 'textbox',
+                    text: fabricText.text,
+                    fontSize: fabricText.fontSize,
+                    fontFamily: fabricText.fontFamily,
+                } as CanvasObjectSpec;
+                break;
+            case 'line':
+                const fabricLine = obj as fabric.Line;
+                objectSpec = {
+                    ...commonSpec,
+                    kind: 'line',
+                    points: [fabricLine.x1!, fabricLine.y1!, fabricLine.x2!, fabricLine.y2!]
+                } as CanvasObjectSpec;
+                break;
+            case 'path':
+                const fabricPath = obj as fabric.Path;
+                objectSpec = {
+                    ...commonSpec,
+                    kind: 'path',
+                    points: fabricPath.path ? fabricPath.path.map((p: Array<string|number>) => p.join(' ')).join(' ') : undefined,
+                } as CanvasObjectSpec;
+                break;
+            case 'image':
+                const fabricImage = obj as fabric.Image;
+                objectSpec = {
+                    ...commonSpec,
+                    kind: 'image',
+                    src: fabricImage.getSrc(),
+                } as CanvasObjectSpec;
+                break;
+            case 'group':
+                const fabricGroup = obj as fabric.Group;
+                objectSpec = {
+                    ...commonSpec,
+                    kind: 'group',
+                    objects: fabricGroup.getObjects().map((groupObj: fabric.Object) => {
+                        const groupObjMeta = (groupObj as any).metadata || {};
+                        return {
+                            id: groupObjMeta.id || `group-child-${Math.random().toString(36).substring(2,9)}`,
+                            kind: groupObj.type || 'unknown',
+                            x: groupObj.left,
+                            y: groupObj.top,
+                            width: groupObj.width ? groupObj.width * (groupObj.scaleX || 1) : undefined,
+                            height: groupObj.height ? groupObj.height * (groupObj.scaleY || 1) : undefined,
+                            metadata: groupObjMeta
+                        } as CanvasObjectSpec;
+                    })
+                } as CanvasObjectSpec;
+                break;
+            default:
+                console.warn(`[getCanvasStateAsSpecs] Unhandled Fabric object type: ${obj.type} for object ID: ${id}. Using common spec.`);
+                objectSpec = commonSpec as CanvasObjectSpec;
+                if (!objectSpec.kind) objectSpec.kind = 'unknown';
+        }
+
+        if (metadata.pctCoords) {
+            objectSpec.xPct = metadata.pctCoords.xPct;
+            objectSpec.yPct = metadata.pctCoords.yPct;
+            objectSpec.widthPct = metadata.pctCoords.widthPct;
+            objectSpec.heightPct = metadata.pctCoords.heightPct;
+        }
+        if (metadata.groupId) {
+            objectSpec.groupId = metadata.groupId;
+        }
+
+        specs.push(objectSpec);
+    });
+
+    return specs;
 } 

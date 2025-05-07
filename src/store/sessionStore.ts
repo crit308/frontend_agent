@@ -19,6 +19,7 @@ import {
 } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
 import * as api from '@/lib/api';
+import type { Canvas } from 'fabric'; // Import Canvas type
 
 // Define connection status type (matches useTutorStream)
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'auth_error';
@@ -77,6 +78,9 @@ export interface SessionState {
   // Whiteboard mode
   whiteboardMode: 'chat_only' | 'chat_and_whiteboard';
 
+  // New state for Fabric canvas instance
+  fabricCanvas: Canvas | null;
+
   // Actions
   setSessionId: (sessionId: string) => void;
   setSelectedFolderId: (folderId: string | null) => void;
@@ -90,6 +94,7 @@ export interface SessionState {
   setUser: (user: User | null) => void;
   setFocusObjective: (focus: FocusObjective) => void;
   setWhiteboardMode: (mode: SessionState['whiteboardMode']) => void;
+  setFabricCanvasInstance: (canvas: Canvas | null) => void;
 
   // WebSocket Actions
   registerWebSocketSend: (sendFn: (payload: any) => void) => void;
@@ -133,6 +138,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   // Whiteboard mode initial state
   whiteboardMode: 'chat_and_whiteboard',
 
+  // New state for Fabric canvas instance
+  fabricCanvas: null,
+
   // Actions
   setSessionId: (sessionId) => set({ sessionId, error: null }),
   setSelectedFolderId: (folderId) => set({ folderId }),
@@ -145,6 +153,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setLoadingMessage: (message) => set({ loadingMessage: message }),
   setFocusObjective: (focus) => set({ focusObjective: focus }),
   setWhiteboardMode: (mode) => set({ whiteboardMode: mode }),
+  setFabricCanvasInstance: (canvas) => set({ fabricCanvas: canvas }),
 
   // WebSocket Action Implementations
   registerWebSocketSend: (sendFn) => set({ webSocketSendFunction: sendFn }),
@@ -239,5 +248,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     connectionStatus: 'idle',
     sessionEndedConfirmed: false,
     whiteboardMode: 'chat_and_whiteboard',
+    fabricCanvas: null,
   }),
 }));

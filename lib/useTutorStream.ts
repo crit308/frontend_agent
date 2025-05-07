@@ -16,6 +16,8 @@ import {
   CanvasObjectSpec
 } from '@/lib/types';
 import { useWhiteboard } from '@/contexts/WhiteboardProvider';
+import { getCanvasStateAsSpecs } from '@/lib/fabricObjectFactory';
+import { Canvas } from 'fabric';
 
 // Define more specific connection status types
 type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'auth_error';
@@ -39,8 +41,9 @@ export interface TutorStreamHandlers {
   onRunItem?: (item: any) => void;
   onAgentUpdated?: (event: any) => void;
   onUnhandled?: (event: any) => void;
-  onInteractionResponse?: (response: { content_type: string; data: any; user_model_state: any; whiteboard_actions?: WhiteboardAction[] }) => void;
+  onInteractionResponse?: (response: InteractionResponseData) => void;
   onWhiteboardStateReceived?: (actions: WhiteboardAction[]) => void;
+  getFabricCanvasInstance?: () => Canvas | null;
 }
 
 export function useTutorStream(
@@ -202,14 +205,23 @@ export function useTutorStream(
       }
     };
     ws.onmessage = (event) => {
-      if (wsRef.current !== ws || !isComponentMountedRef.current) { console.log("[WebSocket] Ignoring message from stale connection or unmounted component."); return; }
-      console.log("[WS Received Raw]:", event.data); // Log raw message
-      let parsedData; try { parsedData = JSON.parse(event.data); } catch (e) { console.error('[WS] message parse error', e); handlers.onError?.(e); updateStatus('error', { message: 'Received invalid message format.' }); return; }
-      console.log("[WS Parsed Data]:", parsedData); // Log parsed message
+      if (wsRef.current !== ws || !isComponentMountedRef.current) { 
+        console.log("[WebSocket] Ignoring message from stale connection or unmounted component."); 
+        return; 
+      }
+      console.log("[WS Received Raw]:", event.data);
+      let parsedData;
+      try { 
+        parsedData = JSON.parse(event.data as string); 
+      } catch (e) { 
+        console.error('[WS] message parse error', e, event.data);
+        handlers.onError?.(e); 
+        updateStatus('error', { message: 'Received invalid message format.' }); 
+        return; 
+      }
+      console.log("[WS Parsed Data]:", parsedData);
 
-      // --- Handle specific message types ---
-
-      // +++ Handle Whiteboard State Hydration First +++
+      // Handle whiteboard_state first
       if (parsedData?.type === 'whiteboard_state' && parsedData?.data?.actions) {
           if (Array.isArray(parsedData.data.actions)) {
               console.log(`[WS] Received whiteboard_state with ${parsedData.data.actions.length} actions.`);
@@ -219,11 +231,36 @@ export function useTutorStream(
           }
           return; // Handled
       }
-      // --- End Whiteboard State Handling ---
 
-      console.log("[WS] Raw parsed data (after whiteboard check):", parsedData); // Log raw structure
+      // Handle REQUEST_BOARD_STATE
+      if (parsedData?.type === 'REQUEST_BOARD_STATE') {
+        console.log("[WS] Received REQUEST_BOARD_STATE:", parsedData);
+        const requestId = parsedData.request_id;
 
-      // Ping/Pong
+        if (!requestId) {
+            console.error("[WS] REQUEST_BOARD_STATE missing request_id", parsedData);
+            return; // Cannot respond without request_id
+        }
+
+        const currentCanvasInstance = handlers.getFabricCanvasInstance?.();
+
+        if (currentCanvasInstance) {
+            try {
+                const specs = getCanvasStateAsSpecs(currentCanvasInstance);
+                console.log("[WS] Sending BOARD_STATE_RESPONSE for request_id:", requestId);
+                sendMessage({ type: 'BOARD_STATE_RESPONSE', request_id: requestId, payload: specs });
+            } catch (error) {
+                console.error("[WS] Error in getCanvasStateAsSpecs or sending BOARD_STATE_RESPONSE:", error);
+                sendMessage({ type: 'BOARD_STATE_RESPONSE', request_id: requestId, payload: [], error: 'Failed to get/send canvas state' });
+            }
+        } else {
+            console.error("[WS] Could not access fabricCanvas instance for REQUEST_BOARD_STATE.");
+            sendMessage({ type: 'BOARD_STATE_RESPONSE', request_id: requestId, payload: [], error: 'Canvas instance not available' });
+        }
+        return; // Handled
+      }
+
+      // Existing Ping/Pong, Ack, Raw Delta handlers should be here
       if (parsedData?.type === 'pong') {
         if (pingTimestampRef.current) {
           setLatency(Date.now() - pingTimestampRef.current);
@@ -236,181 +273,126 @@ export function useTutorStream(
         }
         return; // Handled
       }
-
-      // Ack (if needed)
       if (parsedData?.type === 'ack') {
         console.debug('[WS] Received ack');
         return; // Handled
       }
-
-      // Raw Delta (for streaming later?)
       if (parsedData?.type === 'raw_delta') {
         handlers.onRawResponse?.(parsedData.delta);
         return; // Handled
       }
 
-      // --- Handle InteractionResponseData structure ---
-      // Check if it matches the expected wrapper structure
+      // Handle full InteractionResponseData structure
       if (
         parsedData && typeof parsedData === 'object' &&
-        'content_type' in parsedData &&
-        'data' in parsedData &&
-        'user_model_state' in parsedData
+        'content_type' in parsedData && 'data' in parsedData && 'user_model_state' in parsedData
       ) {
-        // --- Runtime validation for structure ---
-        const hasValidContentType = typeof parsedData.content_type === 'string';
-        const hasValidData = typeof parsedData.data === 'object' && parsedData.data !== null;
-        const hasValidUserModelState = typeof parsedData.user_model_state === 'object' && parsedData.user_model_state !== null;
-        if (!hasValidContentType || !hasValidData || !hasValidUserModelState) {
-          console.warn('[WS Validation] Invalid InteractionResponseData structure:', {
-            hasValidContentType,
-            hasValidData,
-            hasValidUserModelState,
-            parsedData
-          });
-          // Optionally, call error handler or show toast
-          handlers.onError?.(new Error('Invalid InteractionResponseData structure received.'));
-          return;
-        }
-        const interactionResponse = parsedData as InteractionResponseData; // Type assertion after validation
+        const interactionResponse = parsedData as InteractionResponseData;
         console.log(`[WS] Received InteractionResponse: type=${interactionResponse.content_type}`);
 
-        // --- Whiteboard Action Dispatch ---
-        if (interactionResponse.whiteboard_actions && Array.isArray(interactionResponse.whiteboard_actions)) {
-          try {
-            dispatchWhiteboardAction(interactionResponse.whiteboard_actions);
-            console.log('[WS] Dispatched whiteboard actions:', interactionResponse.whiteboard_actions);
-          } catch (err) {
-            console.error('[WS] Error dispatching whiteboard actions:', err);
-          }
-        }
-
-        // Extract the relevant parts
-        const contentType = interactionResponse.content_type;
-        const dataPayload = interactionResponse.data; // This is ExplanationResponse, QuestionResponse etc.
-        const userModelState = interactionResponse.user_model_state;
-
-        // Pass the whole structured response to the handler if provided (optional)
+        // Pass to generic handler if provided
         handlers.onInteractionResponse?.(interactionResponse);
 
-        // Update Zustand store using functional update
+        // Dispatch whiteboard actions if present in the wrapper
+        if (interactionResponse.whiteboard_actions && Array.isArray(interactionResponse.whiteboard_actions)) {
+          // Assuming dispatchWhiteboardAction is available (e.g. from useWhiteboard or passed via handlers)
+          // For now, let's use the onWhiteboardStateReceived handler as a generic way to pass actions.
+          // This might need adjustment if dispatchWhiteboardAction from useWhiteboard context is preferred here.
+          handlers.onWhiteboardStateReceived?.(interactionResponse.whiteboard_actions);
+          console.log('[WS] Dispatched whiteboard_actions from InteractionResponseData:', interactionResponse.whiteboard_actions);
+        }
+
+        // Update Zustand store
         setSessionState((prevState) => {
-            let newError: StructuredError | null = null;
-            let newLoadingState: LoadingState = 'idle'; // Always set to idle after response
-            let newMessages = prevState.messages; // Start with existing messages
+            const tutorInteractionPayload = interactionResponse.data; // THIS IS THE KEY CHANGE
+            const contentType = interactionResponse.content_type;
 
-            // Initialize update object
             const update: Partial<SessionState> = {
-                userModelState, // Always update user model state
-                loadingState: newLoadingState,
+                userModelState: interactionResponse.user_model_state,
+                loadingState: 'idle',
                 loadingMessage: '',
-                error: newError, // Reset error on successful interaction
-                currentInteractionContent: dataPayload as TutorInteractionResponse | null,
-                sessionEndedConfirmed: prevState.sessionEndedConfirmed, // Preserve existing value
+                error: null, // Reset error on successful interaction
+                currentInteractionContent: tutorInteractionPayload, // Store the actual TutorInteractionResponse (data part)
+                sessionEndedConfirmed: prevState.sessionEndedConfirmed,
             };
+            let newMessages = prevState.messages;
+            let messageContentString = "Assistant message processed.";
+            // assistantInteractionForMessage should also be from tutorInteractionPayload
+            let assistantInteractionForMessage: TutorInteractionResponse | ErrorResponse | null = tutorInteractionPayload;
 
-            let messageContentString = "Assistant message processed."; // Fallback
-            let assistantInteractionForMessage: TutorInteractionResponse | null = dataPayload as TutorInteractionResponse;
-
-            // --- Handle different content types ---
             switch (contentType) {
                 case 'explanation': {
-                    const explanationData = dataPayload as ExplanationResponse;
+                    const explanationData = tutorInteractionPayload as ExplanationResponse;
                     messageContentString = explanationData.explanation_text || "Explanation received.";
-                    assistantInteractionForMessage = explanationData;
-                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
                     break;
                 }
                 case 'message': {
-                    const messageData = dataPayload as MessageResponse;
+                    const messageData = tutorInteractionPayload as MessageResponse;
                     messageContentString = messageData.text || "Message received.";
-                    assistantInteractionForMessage = messageData;
-                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
                     break;
                 }
                 case 'question': {
-                    const questionData = dataPayload as QuestionResponse;
-                    assistantInteractionForMessage = questionData;
+                    const questionData = tutorInteractionPayload as QuestionResponse;
                     messageContentString = `Question: ${questionData.question_data.question}`;
                     if (questionData.question_data.options && Array.isArray(questionData.question_data.options)) {
                         const options = questionData.question_data.options.map((opt: string, i: number) => `\n${i + 1}. ${opt}`).join('');
                         messageContentString += options;
                     }
-                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
                     break;
                 }
                 case 'feedback': {
-                    const feedbackData = dataPayload as FeedbackResponse;
-                    assistantInteractionForMessage = feedbackData;
+                    const feedbackData = tutorInteractionPayload as FeedbackResponse;
                     const fbItem = feedbackData.feedback;
-                    const correctness = fbItem.is_correct ? 'Correct' : 'Incorrect';
-                    messageContentString = `Feedback (${correctness}): Regarding "${fbItem.question_text}"`;
-                    if (fbItem.explanation) {
-                        messageContentString += `\nExplanation: ${fbItem.explanation}`;
-                    }
-                    console.log(`[WS Store Update] Setting currentInteractionContent for type: ${contentType}`);
+                    messageContentString = `Feedback (${fbItem.is_correct ? 'Correct' : 'Incorrect'}): Regarding "${fbItem.question_text}"`;
+                    if (fbItem.explanation) messageContentString += `\nExplanation: ${fbItem.explanation}`;
                     break;
                 }
                 case 'error': {
-                    const errorPayload = dataPayload as ErrorResponse;
-                    console.error('[WS Store Update] Received error:', errorPayload.message, errorPayload.details);
-                    newError = { message: errorPayload.message, code: errorPayload.error_code };
-                    update.error = newError;
-                    update.loadingState = 'error'; // Set to error on error response
-                    update.currentInteractionContent = errorPayload; // Set error content
-                    assistantInteractionForMessage = errorPayload;
+                    const errorPayload = tutorInteractionPayload as ErrorResponse;
+                    update.error = { message: errorPayload.message, code: errorPayload.error_code };
+                    update.loadingState = 'error';
+                    // currentInteractionContent is already set to tutorInteractionPayload which is ErrorResponse here
                     messageContentString = `Error: ${errorPayload.message}`;
-
-                    toast({
-                        title: `Tutor Error${errorPayload.error_code ? ` (${errorPayload.error_code})` : ''}`,
-                        description: errorPayload.message || 'An unknown error occurred.',
-                        variant: 'destructive',
-                        duration: 10000,
-                        action: getAnalysisAction(),
-                    });
+                    // toast logic can be here or in the component observing the error state
                     break;
                 }
                 case 'session_ended':
-                    console.log("[WS Store Update] Received session_ended confirmation.");
                     update.sessionEndedConfirmed = true;
-                    update.loadingState = 'idle';
                     update.currentInteractionContent = null; // Clear content on session end
-                    assistantInteractionForMessage = null; // No specific interaction object for this system message
+                    assistantInteractionForMessage = null; // No specific interaction object for system message
                     messageContentString = 'Session ended.';
                     break;
-
                 default:
-                    console.warn(`[WS Store Update] Unhandled content_type: ${contentType}`, parsedData);
-                    update.currentInteractionContent = null; // Clear for unhandled types
-                    assistantInteractionForMessage = null; 
+                    console.warn(`[WS Store Update] Unhandled content_type: ${contentType}`, tutorInteractionPayload);
+                    update.currentInteractionContent = null;
+                    assistantInteractionForMessage = null;
                     messageContentString = `Received unhandled message type: ${contentType}`;
             }
 
-            // Add assistant message to history (unless it's a type we don't want to show or it's null)
-            if (assistantInteractionForMessage || contentType === 'session_ended' || contentType === 'error') { // session_ended is a special case message
-                 try {
-                    const messageToAdd: ChatMessage = {
-                        id: Date.now().toString() + Math.random().toString(36).substring(2),
-                        role: 'assistant',
-                        content: messageContentString,
-                        interaction: assistantInteractionForMessage,
-                        whiteboard_actions: interactionResponse.whiteboard_actions || undefined, // Get from the outer response
-                    };
-                    newMessages = [...prevState.messages, messageToAdd];
-                    update.messages = newMessages;
-                    console.log(`[WS Store Update] Added assistant message to history. New count: ${newMessages.length}`);
-                } catch (error) {
-                    console.error("[WS Store Update] Error creating or adding assistant message:", error, dataPayload);
-                }
+            // Add assistant message to history
+            if (contentType !== 'error' || (contentType === 'error' && assistantInteractionForMessage)) {
+                 // For errors, assistantInteractionForMessage will be the ErrorResponse object itself.
+                 // For session_ended, assistantInteractionForMessage becomes null, but we still add a system message.
+                 const chatMsgInteraction = (contentType === 'session_ended') ? null : assistantInteractionForMessage;
+
+                const messageToAdd: ChatMessage = {
+                    id: Date.now().toString() + Math.random().toString(36).substring(2),
+                    role: 'assistant',
+                    content: messageContentString,
+                    interaction: chatMsgInteraction,
+                    whiteboard_actions: interactionResponse.whiteboard_actions || undefined,
+                };
+                newMessages = [...prevState.messages, messageToAdd];
+                update.messages = newMessages;
             }
             
             console.log("[WS Store Update] Final state update object:", update);
             return { ...prevState, ...update };
         });
 
-        return; // Handled
+        return; // Handled: InteractionResponseData
       } else {
-         console.warn("[WS] Received data does not match InteractionResponseData structure:", parsedData);
+         console.warn("[WS] Received data does not match InteractionResponseData or other known types:", parsedData);
       }
 
       // --- Handle other event types (if any) ---

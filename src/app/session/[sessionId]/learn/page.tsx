@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/resizable"
 import { WhiteboardProvider, useWhiteboard } from '@/contexts/WhiteboardProvider';
 import WhiteboardTools from '@/components/whiteboard/WhiteboardTools';
-import type { WhiteboardAction } from '@/lib/types';
+import type { WhiteboardAction, ErrorResponse, InteractionResponseData } from '@/lib/types';
 import { WhiteboardModeToggle } from '@/components/ui/WhiteboardModeToggle';
 
 function InnerLearnPage() {
@@ -45,6 +45,7 @@ function InnerLearnPage() {
     sessionEndedConfirmed,
     messages,
     whiteboardMode,
+    fabricCanvas,
   } = useSessionStore(
     useShallow((state: SessionState) => ({
       currentInteractionContent: state.currentInteractionContent,
@@ -55,6 +56,7 @@ function InnerLearnPage() {
       sessionEndedConfirmed: state.sessionEndedConfirmed,
       messages: state.messages,
       whiteboardMode: state.whiteboardMode,
+      fabricCanvas: state.fabricCanvas,
     }))
   );
 
@@ -70,7 +72,21 @@ function InnerLearnPage() {
             dispatchWhiteboardAction(actions);
         }
     },
-  }), [dispatchWhiteboardAction]);
+    getFabricCanvasInstance: () => {
+        return useSessionStore.getState().fabricCanvas;
+    },
+    onInteractionResponse: (response: InteractionResponseData) => {
+        if (response.content_type === 'error') {
+            const errorData = response.data as ErrorResponse;
+            toast({
+                title: `Tutor Error${errorData.error_code ? ` (${errorData.error_code})` : ''}`,
+                description: errorData.message || 'An unknown error occurred.',
+                variant: 'destructive',
+                duration: 7000,
+            });
+        }
+    }
+  }), [dispatchWhiteboardAction, toast]);
 
   const { latency } = useTutorStream(sessionId || '', jwt, streamHandlers);
 
