@@ -3,6 +3,8 @@ import * as fabric from 'fabric';
 import type { TEvent } from 'fabric';
 import { useWhiteboard } from '@/contexts/WhiteboardProvider'; // Import the hook
 import { useSessionStore } from '@/store/sessionStore'; // Import sendInteraction
+import { calculateAbsoluteCoords } from '@/lib/whiteboardUtils'; // Added import
+import { CanvasObjectSpec } from '@/lib/types'; // Added import
 
 interface WhiteboardProps {
   sessionId?: string;
@@ -66,14 +68,49 @@ const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ sessionId }) => {
 
     // Handle resize - Adjust canvas size when container resizes
     const resizeObserver = new ResizeObserver(entries => {
+        if (!fabricCanvasRef.current) return;
+        const fabricCanvas = fabricCanvasRef.current;
         const entry = entries[0];
-        const { width, height } = entry.contentRect;
-        console.log('[Whiteboard] Resized to:', width, height);
-        canvas.setWidth(width);
-        canvas.setHeight(height);
-        canvas.renderAll();
+        const { width: newCanvasWidth, height: newCanvasHeight } = entry.contentRect;
+        
+        console.log('[Whiteboard] Resized to:', newCanvasWidth, newCanvasHeight);
+        fabricCanvas.setWidth(newCanvasWidth);
+        fabricCanvas.setHeight(newCanvasHeight);
+
+        // Iterate through all objects and update their positions/dimensions if they use percentages
+        fabricCanvas.getObjects().forEach(obj => {
+            const metadata = (obj as any).metadata as CanvasObjectSpec['metadata'];
+            if (metadata && metadata.pctCoords) {
+                const pctSpec: Partial<CanvasObjectSpec> = {
+                    id: metadata.id,
+                    // Use stored percentages for recalculation
+                    xPct: metadata.pctCoords.xPct,
+                    yPct: metadata.pctCoords.yPct,
+                    widthPct: metadata.pctCoords.widthPct,
+                    heightPct: metadata.pctCoords.heightPct,
+                    // Include original absolute values if no Pct was defined for a dimension, 
+                    // so calculateAbsoluteCoords can pass them through.
+                    // This is important if an object uses Pct for x/y but fixed for width/height.
+                    x: metadata.pctCoords.xPct === undefined ? obj.left : undefined,
+                    y: metadata.pctCoords.yPct === undefined ? obj.top : undefined,
+                    width: metadata.pctCoords.widthPct === undefined ? obj.width : undefined,
+                    height: metadata.pctCoords.heightPct === undefined ? obj.height : undefined,
+                };
+
+                const { x, y, width, height } = calculateAbsoluteCoords(pctSpec as CanvasObjectSpec, newCanvasWidth, newCanvasHeight);
+                
+                const updateProps: any = { left: x, top: y };
+                if (width !== undefined) updateProps.width = width;
+                if (height !== undefined) updateProps.height = height;
+
+                obj.set(updateProps);
+                obj.setCoords(); 
+            }
+        });
+
+        fabricCanvas.requestRenderAll();
     });
-    resizeObserver.observe(parentRef.current);
+    resizeObserver.observe(parentRef.current!);
 
     // --- Cleanup --- 
     return () => {

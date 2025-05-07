@@ -78,6 +78,74 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                }
                fabricCanvasInternalState.requestRenderAll(); 
                break;
+             case 'GROUP_OBJECTS': {
+                const objectsToGroup = fabricCanvasInternalState.getObjects().filter((obj: any) => 
+                    action.objectIds.includes(obj.metadata?.id)
+                );
+                if (objectsToGroup.length !== action.objectIds.length) {
+                    console.warn(`[WhiteboardProvider] GROUP_OBJECTS: Not all specified object IDs found. Found ${objectsToGroup.length} of ${action.objectIds.length}.`);
+                    // Potentially filter out already grouped items if necessary
+                }
+                if (objectsToGroup.length > 0) {
+                    // Remove individual objects from canvas before grouping
+                    objectsToGroup.forEach(obj => fabricCanvasInternalState.remove(obj));
+
+                    const group = new fabric.Group(objectsToGroup, {
+                        // fabric.js calculates left/top of group based on its contents
+                        // an explicit left/top in spec might be for initial absolute placement if desired
+                    });
+                    // Assign groupId to the group's metadata
+                    (group as any).metadata = {
+                        ...(group as any).metadata, // Preserve any existing metadata on the group if fabric adds some
+                        id: action.groupId, // This is the group's own ID
+                        isGroup: true, // Custom flag to identify this as a managed group
+                        // store constituent object IDs if needed for ungrouping later
+                        // groupedObjectIds: action.objectIds 
+                    };
+                    fabricCanvasInternalState.add(group);
+                    fabricCanvasInternalState.setActiveObject(group); // Optionally make the new group active
+                } else {
+                    console.warn(`[WhiteboardProvider] GROUP_OBJECTS: No valid objects found to group for groupId ${action.groupId}.`);
+                }
+                break;
+            }
+            case 'MOVE_GROUP': {
+                const groupToMove = fabricCanvasInternalState.getObjects().find((obj: any) => 
+                    obj.metadata?.id === action.groupId && (obj.metadata?.isGroup || obj.type === 'group')
+                ) as fabric.Group | undefined;
+
+                if (groupToMove) {
+                    groupToMove.set({
+                        left: (groupToMove.left ?? 0) + action.dx,
+                        top: (groupToMove.top ?? 0) + action.dy,
+                    });
+                    groupToMove.setCoords(); // Important after position change
+                } else {
+                    console.warn(`[WhiteboardProvider] MOVE_GROUP: Group with ID ${action.groupId} not found.`);
+                }
+                break;
+            }
+            case 'DELETE_GROUP': {
+                const groupToDelete = fabricCanvasInternalState.getObjects().find((obj: any) => 
+                    obj.metadata?.id === action.groupId && (obj.metadata?.isGroup || obj.type === 'group')
+                );
+                if (groupToDelete) {
+                    // Option 1: Remove the group directly (children are removed with it by fabric)
+                    fabricCanvasInternalState.remove(groupToDelete);
+
+                    // Option 2: If ungrouping is needed before deletion (e.g. to return children to canvas)
+                    // if (groupToDelete.type === 'group') {
+                    //   (groupToDelete as fabric.Group).forEachObject(obj => {
+                    //     // fabricCanvasInternalState.add(obj); // Add back to canvas if needed, adjusting coords
+                    //   });
+                    //   (groupToDelete as fabric.Group).destroy(); // Ungroup
+                    //   fabricCanvasInternalState.remove(groupToDelete); // Then remove the empty group
+                    // }
+                } else {
+                    console.warn(`[WhiteboardProvider] DELETE_GROUP: Group with ID ${action.groupId} not found.`);
+                }
+                break;
+            }
              default:
                // type assertion to help TS narrow down 'action'
                const unhandledAction = action as any;

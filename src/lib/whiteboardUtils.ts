@@ -12,6 +12,48 @@ import {
 } from 'fabric';
 import type { CanvasObjectSpec } from './types';
 
+export function calculateAbsoluteCoords(
+    spec: CanvasObjectSpec,
+    canvasWidth: number,
+    canvasHeight: number
+): { x: number; y: number; width?: number; height?: number; metadataPctCoords?: NonNullable<CanvasObjectSpec['metadata']>['pctCoords'] } {
+    let x = spec.x;
+    let y = spec.y;
+    let width = spec.width;
+    let height = spec.height;
+    const pctCoordsStore: NonNullable<CanvasObjectSpec['metadata']>['pctCoords'] = {};
+
+    if (spec.xPct !== undefined && spec.xPct !== null) {
+        x = spec.xPct * canvasWidth;
+        pctCoordsStore.xPct = spec.xPct;
+    }
+    if (spec.yPct !== undefined && spec.yPct !== null) {
+        y = spec.yPct * canvasHeight;
+        pctCoordsStore.yPct = spec.yPct;
+    }
+    if (spec.widthPct !== undefined && spec.widthPct !== null && width === undefined) {
+        width = spec.widthPct * canvasWidth;
+        pctCoordsStore.widthPct = spec.widthPct;
+    }
+    if (spec.heightPct !== undefined && spec.heightPct !== null && height === undefined) {
+        height = spec.heightPct * canvasHeight;
+        pctCoordsStore.heightPct = spec.heightPct;
+    }
+
+    const finalX = x === undefined ? 0 : x;
+    const finalY = y === undefined ? 0 : y;
+    
+    const hasPctCoords = Object.keys(pctCoordsStore).length > 0;
+
+    return {
+        x: finalX,
+        y: finalY,
+        width,
+        height,
+        ...(hasPctCoords && { metadataPctCoords: pctCoordsStore })
+    };
+}
+
 /**
  * Exports the current state of the Fabric.js canvas as an array of CanvasObjectSpec.
  * This function attempts to convert Fabric objects back into the serializable spec format.
