@@ -85,22 +85,62 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({ messages, onNext }) => {
         }
         // --- Assistant Message ---
         else if (msg.role === 'assistant') {
-          return (
-            <div key={msg.id} className="flex justify-start">
-              <div className="bg-muted p-3 rounded-lg max-w-[80%] shadow-sm">
-                {/* Render WhiteboardActivityIndicator if actions are present */}
-                {msg.whiteboard_actions && msg.whiteboard_actions.length > 0 && (
-                  <WhiteboardActivityIndicator />
-                )}
-                {/* Render based on the stored interaction object or plain content */}
-                {msg.interaction ? (
-                  <TutorMessageRenderer interaction={msg.interaction} onNext={onNext} />
-                ) : (
-                  <div>{msg.content}</div> // Render plain content if no interaction object (e.g. session_ended)
-                )}
+          // Handle assistant messages, especially errors
+          if (msg.interaction) {
+            // Check for the specific non-conforming error structure from the backend
+            // It has 'error_message' and lacks 'response_type'
+            const interactionAsAny = msg.interaction as any;
+            if (interactionAsAny.error_message !== undefined && interactionAsAny.response_type === undefined) {
+              const errorData = interactionAsAny as { error_message: string; error_code?: string; technical_details?: any };
+              return (
+                <div key={msg.id} className="flex justify-start">
+                  <div className="bg-red-100 border border-red-300 text-red-800 p-3 rounded-lg max-w-[80%] shadow-sm">
+                    <strong>Error:</strong> {errorData.error_message}
+                    {errorData.error_code && <span className="ml-1">({errorData.error_code})</span>}
+                    {errorData.technical_details && (
+                      <details className="mt-2 text-xs">
+                        <summary className="cursor-pointer">Technical Details</summary>
+                        <pre className="mt-1 p-2 bg-red-50 rounded whitespace-pre-wrap break-all">
+                          {typeof errorData.technical_details === 'string'
+                            ? errorData.technical_details
+                            : JSON.stringify(errorData.technical_details, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              );
+            } else {
+              // For all other interactions (including conforming ErrorResponse), use TutorMessageRenderer
+              return (
+                <div key={msg.id} className="flex justify-start">
+                  <div className="bg-muted p-3 rounded-lg max-w-[80%] shadow-sm">
+                    {/* Render WhiteboardActivityIndicator if actions are present */}
+                    {msg.whiteboard_actions && msg.whiteboard_actions.length > 0 && (
+                      <WhiteboardActivityIndicator />
+                    )}
+                    <TutorMessageRenderer
+                      interaction={msg.interaction as TutorInteractionResponse} // Safe, ErrorResponse is part of TutorInteractionResponse
+                      onNext={onNext}
+                    />
+                  </div>
+                </div>
+              );
+            }
+          } else {
+            // Render simple text content if no interaction object (e.g., "Session Ended" message)
+            return (
+              <div key={msg.id} className="flex justify-start">
+                <div className="bg-muted p-3 rounded-lg max-w-[80%] shadow-sm">
+                  {/* Render WhiteboardActivityIndicator if actions are present (though unlikely without interaction) */}
+                  {msg.whiteboard_actions && msg.whiteboard_actions.length > 0 && (
+                    <WhiteboardActivityIndicator />
+                  )}
+                  <div>{msg.content}</div>
+                </div>
               </div>
-            </div>
-          );
+            );
+          }
         }
         // --- Fallback for unexpected message types ---
         return <div key={msg.id} className="text-xs text-red-500">Unknown message role: {msg.role}</div>;
