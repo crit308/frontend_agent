@@ -2,13 +2,11 @@
 
 import React, { useEffect } from 'react';
 import ExplanationViewComponent from '@/components/interaction/ExplanationView';
-import QuestionView from '@/components/views/QuestionView';
 import FeedbackViewComponent from '@/components/views/FeedbackView';
 import MessageViewComponent from '@/components/views/MessageView';
 import type {
   TutorInteractionResponse,
   ExplanationResponse,
-  QuestionResponse,
   FeedbackResponse,
   MessageResponse,
   ErrorResponse,
@@ -49,7 +47,12 @@ const TutorMessageRenderer: React.FC<TutorMessageRendererProps> = ({ interaction
       case 'explanation':
         return <ExplanationViewComponent content={tutorInteraction as ExplanationResponse} onNext={onNext} />;
       case 'question':
-        return <QuestionView content={tutorInteraction as QuestionResponse} />;
+        // For questions, instruct the user to look at the whiteboard instead of rendering the MCQ in chat
+        return (
+          <div className="text-sm whitespace-pre-wrap">
+            The tutor has a question for you on the whiteboard.
+          </div>
+        );
       case 'feedback':
         // Corrected to use .feedback instead of .item
         return <FeedbackViewComponent feedback={(tutorInteraction as FeedbackResponse).feedback} onNext={onNext} />;

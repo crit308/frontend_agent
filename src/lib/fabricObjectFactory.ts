@@ -81,6 +81,7 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     fill: spec.fill ?? 'transparent',
                     stroke: spec.stroke ?? 'black',
                     strokeWidth: spec.strokeWidth ?? 1,
+                    evented: spec.evented ?? true,
                 });
                 break;
             case 'textbox':
@@ -93,6 +94,19 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                     fill: spec.fill ?? 'black',
                     strokeWidth: spec.strokeWidth ?? 0,
                     stroke: undefined,
+                });
+                break;
+            case 'text':
+                // Treat plain text as a textbox for simplicity
+                fabricObject = new Textbox(spec.text ?? 'Text', {
+                    ...baseOptions,
+                    width: coords.width ?? 100,
+                    fontSize: spec.fontSize ?? 18,
+                    fontFamily: spec.fontFamily ?? 'Arial',
+                    fill: spec.fill ?? 'black',
+                    strokeWidth: 0,
+                    stroke: undefined,
+                    selectable: spec.selectable ?? false,
                 });
                 break;
             case 'line': { 
@@ -185,6 +199,7 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
       case 'rect':
       case 'circle':
       case 'textbox':
+      case 'text':
       case 'line':
       case 'path':
         fabricObject = createFabricObjectInternal(spec, canvas);
@@ -261,37 +276,58 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
           });
           break;
       }
-      case 'radio':
-      case 'checkbox': {
-          const isRadio = spec.kind === 'radio';
-          const size = spec.size ?? 12; // Use spec.size or a default
-          const shape = isRadio
-              ? new Circle({ radius: size / 2, fill: 'white', stroke: 'black', strokeWidth: 1 })
-              : new Rect({ width: size, height: size, fill: 'white', stroke: 'black', strokeWidth: 1, rx: 2, ry: 2 }); // Checkbox with slight rounding
+      case 'radio': {
+        if (!Array.isArray(spec.options) || spec.options.length === 0) {
+          console.warn(`[fabricFactory] Radio object (ID: ${spec.id}) has no options array.`);
+          return;
+        }
 
-          const label = spec.text ? new Textbox(spec.text, {
-              left: size + 5, // Position label next to shape
-              top: -size / 4, // Adjust vertical alignment
-              fontSize: spec.fontSize ?? 14,
-              fontFamily: spec.fontFamily ?? 'Arial',
-              fill: spec.fill ?? 'black',
-              selectable: false, // Label usually not selectable itself
-              evented: false,
-          }) : null;
+        const groupItems: FabricObject[] = [];
+        const lineHeight = 28;
 
-          // Explicitly type the array to allow different object types
-          const itemsToGroup: FabricObject[] = [shape]; 
-          if (label) itemsToGroup.push(label);
+        spec.options.forEach((opt: string, idx: number) => {
+          const yOffset = idx * lineHeight;
 
-          // Create the group using baseOptions for overall positioning
-          fabricObject = new Group(itemsToGroup, {
-              ...baseOptions,
-              // Group positioning is controlled by baseOptions.left/top
-              // Ensure sub-objects within the group use relative positioning (handled by default)
-              selectable: spec.selectable ?? true, // Group selectability
-              evented: spec.evented ?? true, // Allow clicks on the group
+          const circle = new Circle({
+            left: 0,
+            top: yOffset + 4,
+            radius: 8,
+            stroke: '#555',
+            fill: '#fff',
+            selectable: true,
+            evented: true,
           });
-          break;
+
+          (circle as any).metadata = {
+            ...objectMetadata,
+            role: 'option_selector',
+            option_id: idx,
+          };
+
+          const label = new Textbox(opt, {
+            left: 18,
+            top: yOffset,
+            width: 500,
+            fontSize: 16,
+            fill: '#000',
+            selectable: false,
+            evented: false,
+          });
+
+          groupItems.push(circle, label);
+        });
+
+        fabricObject = new Group(groupItems, {
+          left: x,
+          top: y,
+          originX: 'left',
+          originY: 'top',
+          selectable: false,
+          evented: false,
+          subTargetCheck: true,
+        });
+
+        break;
       }
       default:
         // Removed exhaustive check for now, rely on warning

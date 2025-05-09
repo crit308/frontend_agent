@@ -112,6 +112,7 @@ export interface CanvasObjectSpec {
     [key: string]: any; // Allow other metadata
   };
   groupId?: string; // Optional top-level group ID for object creation context
+  options?: string[]; // Options for radio/checkbox kinds
   // Add other common Fabric properties as needed
   // Add other relevant Fabric props
 }
