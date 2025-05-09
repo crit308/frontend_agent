@@ -22,6 +22,8 @@ const WhiteboardContext = createContext<WhiteboardContextType | undefined>(undef
 export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [fabricCanvasInternalState, setFabricCanvasInternalState] = useState<fabric.Canvas | null>(null);
   const setFabricCanvasInstanceInStore = useSessionStore((state) => state.setFabricCanvasInstance);
+  const [actionQueue, setActionQueue] = useState<WhiteboardAction[]>([]); // NEW: queue for incoming actions before canvas ready
+  const [isCanvasReady, setIsCanvasReady] = useState(false); // NEW: readiness flag
 
   const setFabricCanvas = useCallback((canvas: fabric.Canvas | null) => {
      console.log("[WhiteboardProvider] Setting Fabric Canvas instance in provider state:", canvas ? 'Instance received' : 'Instance cleared');
@@ -29,16 +31,19 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
      // Also set it in the global Zustand store
      setFabricCanvasInstanceInStore(canvas);
      console.log("[WhiteboardProvider] Fabric Canvas instance also set in Zustand store.");
+     setIsCanvasReady(!!canvas); // update readiness flag
   }, [setFabricCanvasInstanceInStore]);
 
   const dispatchWhiteboardAction = useCallback(async (actionOrActions: WhiteboardAction | WhiteboardAction[]) => {
-    if (!fabricCanvasInternalState) { // Use the internal state for guard
-      console.warn('dispatchWhiteboardAction called before canvas is ready.');
-      // TODO: Queue actions? Or rely on re-render after canvas is set?
+    const actions = Array.isArray(actionOrActions) ? actionOrActions : [actionOrActions];
+
+    // If canvas not ready, queue the actions and return
+    if (!fabricCanvasInternalState || !isCanvasReady) {
+      console.warn(`[WhiteboardProvider] Canvas not ready. Queuing ${actions.length} actions.`);
+      setActionQueue(prev => [...prev, ...actions]);
       return;
     }
 
-    const actions = Array.isArray(actionOrActions) ? actionOrActions : [actionOrActions];
     console.log(`[WhiteboardProvider] Dispatching ${actions.length} actions:`, actions);
 
     for (const action of actions) {
@@ -142,17 +147,17 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                                selectable: false,
                              });
                              const nodeGroup = new fabric.Group([nodeRect, nodeLabel], {
-                               left: pos.x, 
+                               left: pos.x,
                                top: pos.y,
                                selectable: true,
                                evented: true,
-                               metadata: { 
-                                   id: nodeSpec.id, 
-                                   kind: 'graph_node', 
-                                   parentGraphId: spec.id, // Link to the main graph ID
-                                   ...(nodeSpec.metadata || {}) 
-                               }
                              });
+                             (nodeGroup as any).metadata = {
+                               id: nodeSpec.id,
+                               kind: 'graph_node',
+                               parentGraphId: spec.id,
+                               ...(nodeSpec.metadata || {})
+                             };
                              fabricObjectsInGraph.push(nodeGroup);
                            }
                          });
@@ -176,13 +181,13 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                                strokeWidth: 2,
                                selectable: false,
                                evented: false,
-                               metadata: { 
-                                   id: edgeSpec.id, 
-                                   kind: 'graph_edge', 
-                                   parentGraphId: spec.id, // Link to the main graph ID
-                                   ...(edgeSpec.metadata || {}) 
-                               }
                              });
+                             (edgeLine as any).metadata = {
+                               id: edgeSpec.id,
+                               kind: 'graph_edge',
+                               parentGraphId: spec.id,
+                               ...(edgeSpec.metadata || {})
+                             };
                              fabricObjectsInGraph.push(edgeLine);
                              // TODO: Add arrowheads if needed
                            }
@@ -192,16 +197,15 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
                          if (fabricObjectsInGraph.length > 0) {
                            if (spec.metadata?.combineIntoGroup || true) { // Default to grouping them
                                const entireGraphGroup = new fabric.Group(fabricObjectsInGraph, {
-                                   // Position of the group can be based on the overall bounding box or spec.x, spec.y
-                                   left: spec.x as number || 0, // Use graph spec x/y if provided
-                                   top: spec.y as number || 0,
-                                   metadata: {
-                                       id: spec.id, // The ID of the 'graph_layout' spec itself
-                                       kind: 'graph_group', // Distinguish this group
-                                       source: spec.metadata?.source,
-                                       layoutAlgorithm: layoutSpec.layoutType || 'layered'
-                                   }
+                                   left: (spec.x as number) || 0,
+                                   top: (spec.y as number) || 0,
                                });
+                               (entireGraphGroup as any).metadata = {
+                                   id: spec.id,
+                                   kind: 'graph_group',
+                                   source: spec.metadata?.source,
+                                   layoutAlgorithm: layoutSpec.layoutType || 'layered',
+                               };
                                canvas.add(entireGraphGroup);
                            } else {
                                 fabricObjectsInGraph.forEach(obj => canvas.add(obj));
@@ -339,7 +343,17 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
       fabricCanvasInternalState.requestRenderAll();
     }
 
-  }, [fabricCanvasInternalState]); // Dependency: fabricCanvasInternalState
+  }, [fabricCanvasInternalState, isCanvasReady]);
+
+  // NEW EFFECT: When canvas becomes ready, flush any queued actions
+  useEffect(() => {
+     if (isCanvasReady && fabricCanvasInternalState && actionQueue.length > 0) {
+        console.log(`[WhiteboardProvider] Processing ${actionQueue.length} queued actions.`);
+        const queued = [...actionQueue];
+        setActionQueue([]); // clear queue BEFORE processing to avoid recursive queueing
+        dispatchWhiteboardAction(queued);
+     }
+  }, [isCanvasReady, fabricCanvasInternalState, actionQueue, dispatchWhiteboardAction]);
 
   // The context value will provide the internal state for local consumption if needed,
   // but the primary source for other hooks/services should be the Zustand store.

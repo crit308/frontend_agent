@@ -111,16 +111,31 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({ messages, onNext }) => {
                 </div>
               );
             } else {
-              // For all other interactions (including conforming ErrorResponse), use TutorMessageRenderer
+              const hasWhiteboardActions = msg.whiteboard_actions && msg.whiteboard_actions.length > 0;
+
+              // Check if interaction is a simple status update message without response_type
+              if (!('response_type' in msg.interaction) && 'message_text' in (msg.interaction as any)) {
+                const interactionAsMessage = msg.interaction as any;
+                return (
+                  <div key={msg.id} className="flex justify-start">
+                    <div className="bg-muted p-3 rounded-lg max-w-[80%] shadow-sm">
+                      {hasWhiteboardActions && <WhiteboardActivityIndicator />}
+                      {/* Fallback rendering for status messages */}
+                      <div className="text-sm text-muted-foreground whitespace-pre-wrap">
+                        {interactionAsMessage.message_text}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Normal interaction path (with response_type)
               return (
                 <div key={msg.id} className="flex justify-start">
                   <div className="bg-muted p-3 rounded-lg max-w-[80%] shadow-sm">
-                    {/* Render WhiteboardActivityIndicator if actions are present */}
-                    {msg.whiteboard_actions && msg.whiteboard_actions.length > 0 && (
-                      <WhiteboardActivityIndicator />
-                    )}
+                    {hasWhiteboardActions && <WhiteboardActivityIndicator />}
                     <TutorMessageRenderer
-                      interaction={msg.interaction as TutorInteractionResponse} // Safe, ErrorResponse is part of TutorInteractionResponse
+                      interaction={msg.interaction as TutorInteractionResponse}
                       onNext={onNext}
                     />
                   </div>
