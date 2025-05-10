@@ -25,9 +25,36 @@ const Whiteboard: React.FC<WhiteboardProps> = React.memo(({ sessionId }) => {
     // Check if the clicked target is a fabric object and has a metadata ID
     if (target && target.metadata) {
       // MCQ Option Selector
-      if (target.metadata.role === 'option_selector' && typeof target.metadata.option_id !== 'undefined') {
-        console.log(`[Whiteboard] Option selector clicked. Option ID: ${target.metadata.option_id}`);
-        sendInteraction('answer', { answer_index: target.metadata.option_id });
+      if (target.metadata.role === 'option_selector') {
+        const clickedCircle = target as fabric.Object;
+
+        // 1️⃣  Notify backend first (if option_id available). Fallback to id.
+        if (typeof target.metadata.option_id !== 'undefined') {
+          console.log(`[Whiteboard] Option selector clicked. Option ID: ${target.metadata.option_id}`);
+          const answerPayload: any = { answer_index: target.metadata.option_id };
+          if (target.metadata.question_id) {
+            answerPayload.question_id = target.metadata.question_id;
+          }
+          sendInteraction('answer', answerPayload);
+        } else {
+          console.log(`[Whiteboard] Option selector clicked (no explicit option_id).`);
+          sendInteraction('answer', { object_id: target.metadata.id });
+        }
+
+        // 2️⃣  Provide immediate visual feedback on the canvas.
+        if (fabricCanvasRef.current) {
+          const canvas = fabricCanvasRef.current;
+          // Unselect all other option circles (set fill back to white)
+          canvas.getObjects().forEach(obj => {
+            if ((obj as any).metadata?.role === 'option_selector') {
+              obj.set('fill', '#FFFFFF');
+            }
+          });
+
+          // Highlight the clicked one
+          clickedCircle.set('fill', '#4F46E5'); // indigo-600
+          canvas.requestRenderAll();
+        }
         return;
       }
       // Generic object click

@@ -50,6 +50,31 @@ export const WhiteboardProvider: React.FC<{ children: ReactNode }> = ({ children
       try {
            switch (action.type) {
              case 'ADD_OBJECTS':
+               // ----- NEW: If incoming objects represent a new MCQ question, clear the previous one -----
+               const incomingLooksLikeQuestion = action.objects.some(obj =>
+                   obj.metadata?.role === 'question' || obj.kind === 'radio'
+               );
+
+               if (incomingLooksLikeQuestion) {
+                   const objsToRemove: fabric.Object[] = [];
+                   const questionRelatedRoles = new Set(['question', 'option_selector', 'option_label']);
+
+                   fabricCanvasInternalState.getObjects().forEach(obj => {
+                       const md = (obj as any).metadata || {};
+                       if (md.source === 'assistant') {
+                           if (questionRelatedRoles.has(md.role) || md.kind === 'radio_option_group') {
+                               objsToRemove.push(obj as fabric.Object);
+                           }
+                       }
+                   });
+
+                   if (objsToRemove.length) {
+                       console.log(`[WhiteboardProvider] Clearing ${objsToRemove.length} previous question objects before adding new question.`);
+                       objsToRemove.forEach(o => fabricCanvasInternalState.remove(o));
+                       fabricCanvasInternalState.requestRenderAll();
+                   }
+               }
+
                for (const spec of action.objects) {
                  if (spec.kind === 'latex_svg') {
                    if (spec.metadata?.latex) {

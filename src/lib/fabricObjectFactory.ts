@@ -56,8 +56,8 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
       stroke: spec.stroke,
       strokeWidth: spec.strokeWidth,
       angle: spec.angle ?? 0,
-      selectable: spec.selectable ?? true,
-      evented: spec.evented ?? false,
+      selectable: spec.selectable ?? !(['option_selector', 'option_label'].includes(spec.metadata?.role ?? '')),
+      evented: spec.evented ?? (['option_selector', 'option_label'].includes(spec.metadata?.role ?? '') ? true : false),
       originX: 'left' as const,
       originY: 'top' as const,
     };
@@ -87,7 +87,7 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
             case 'textbox':
                 fabricObject = new Textbox(spec.text ?? 'Text', {
                     ...baseOptions,
-                    width: coords.width ?? 100,
+                    width: coords.width ?? (canvas ? canvas.getWidth() * 0.85 : 250),
                     ...(coords.height !== undefined && { height: coords.height }),
                     fontSize: spec.fontSize ?? 16,
                     fontFamily: spec.fontFamily ?? 'Arial',
@@ -100,7 +100,7 @@ function createFabricObjectInternal(spec: CanvasObjectSpec, canvas?: Canvas): Fa
                 // Treat plain text as a textbox for simplicity
                 fabricObject = new Textbox(spec.text ?? 'Text', {
                     ...baseOptions,
-                    width: coords.width ?? 100,
+                    width: coords.width ?? (canvas ? canvas.getWidth() * 0.85 : 250),
                     fontSize: spec.fontSize ?? 18,
                     fontFamily: spec.fontFamily ?? 'Arial',
                     fill: spec.fill ?? 'black',
@@ -188,8 +188,8 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
       stroke: spec.stroke,
       strokeWidth: spec.strokeWidth,
       angle: spec.angle ?? 0,
-      selectable: spec.selectable ?? true,
-      evented: spec.evented ?? false,
+      selectable: spec.selectable ?? !(['option_selector', 'option_label'].includes(spec.metadata?.role ?? '')),
+      evented: spec.evented ?? (['option_selector', 'option_label'].includes(spec.metadata?.role ?? '') ? true : false),
       originX: 'left' as const,
       originY: 'top' as const,
     };
@@ -277,56 +277,63 @@ export function createFabricObject(canvas: Canvas, spec: CanvasObjectSpec): void
           break;
       }
       case 'radio': {
-        if (!Array.isArray(spec.options) || spec.options.length === 0) {
-          console.warn(`[fabricFactory] Radio object (ID: ${spec.id}) has no options array.`);
-          return;
-        }
-
-        const groupItems: FabricObject[] = [];
-        const lineHeight = 28;
-
-        spec.options.forEach((opt: string, idx: number) => {
-          const yOffset = idx * lineHeight;
-
+        if (Array.isArray(spec.options) && spec.options.length > 0) {
+          // This is the deprecated MCQ format (kind: "radio" with an "options" array).
+          // The backend should send MCQs as a list of individual text/circle objects.
+          console.warn(`[fabricObjectFactory] Received deprecated MCQ format (kind: "radio" with options array) for ID: ${spec.id || 'unknown'}. This format is no longer supported for MCQs. Object will not be rendered.`);
+          fabricObject = null; // Ensure no object is created for this deprecated format
+        } else {
+          // This handles a spec intended to be a SINGLE radio button (kind: "radio" but NO options array).
+          // This is not intended for rendering full MCQs.
           const circle = new Circle({
+            // Position relative to the intended group origin initially
             left: 0,
-            top: yOffset + 4,
-            radius: 8,
-            stroke: '#555',
-            fill: '#fff',
-            selectable: true,
-            evented: true,
+            top: 4, // Small offset for alignment with text
+            radius: spec.radius ?? 8,
+            stroke: spec.stroke ?? '#555555',
+            strokeWidth: spec.strokeWidth ?? 1,
+            fill: spec.fill ?? '#FFFFFF',
+            selectable: spec.selectable ?? false,
+            evented: spec.evented ?? true,
           });
 
           (circle as any).metadata = {
-            ...objectMetadata,
-            role: 'option_selector',
-            option_id: idx,
+            ...objectMetadata, // Inherits id, pctCoords etc. from spec
+            role: 'option_selector', // Generic role
           };
 
-          const label = new Textbox(opt, {
-            left: 18,
-            top: yOffset,
-            width: 500,
-            fontSize: 16,
-            fill: '#000',
+          const labelText = spec.label ?? ''; 
+          const label = new Textbox(labelText, {
+            // Position relative to the intended group origin
+            left: (spec.radius ?? 8) * 2 + 4, // Place label to the right of the circle
+            top: 0,
+            width: spec.width || (canvas ? canvas.getWidth() * 0.7 : 200), // Use spec.width for label if provided
+            fontSize: spec.fontSize ?? 16,
+            fontFamily: spec.fontFamily ?? 'Arial',
+            fill: spec.fill ?? '#333333', // Text fill should be distinct from object fill
             selectable: false,
             evented: false,
           });
-
-          groupItems.push(circle, label);
-        });
-
-        fabricObject = new Group(groupItems, {
-          left: x,
-          top: y,
-          originX: 'left',
-          originY: 'top',
-          selectable: false,
-          evented: false,
-          subTargetCheck: true,
-        });
-
+          (label as any).metadata = {
+            ...objectMetadata,
+            id: `${objectMetadata.id}-label`, // Ensure label has a distinct ID
+            role: 'radio_label_for_single_item',
+          };
+          
+          // Group the circle and label for a single radio button instance
+          // The group itself will be positioned by baseOptions (derived from spec.x, spec.y, spec.xPct, spec.yPct)
+          fabricObject = new Group([circle, label], {
+            // baseOptions (left, top, angle etc.) are applied to the group by the default logic later IF this fabricObject is returned
+            // However, the internal elements (circle, label) are positioned relative to the group's (0,0)
+            // So, we use the baseOptions spread here to ensure the group has them directly.
+            ...baseOptions, // Apply spec's x,y,angle etc. to the group
+            selectable: spec.selectable ?? false, 
+            evented: spec.evented ?? false, 
+            subTargetCheck: true, 
+          });
+          // Ensure the group's metadata is set, including its kind if it's specific
+          (fabricObject as any).metadata = { ...objectMetadata, kind: objectMetadata.kind || 'radio_button_group' }; 
+        }
         break;
       }
       default:
