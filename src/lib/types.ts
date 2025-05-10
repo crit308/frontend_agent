@@ -313,10 +313,10 @@ export interface QuestionResponse {
 }
 export interface FeedbackResponse {
   response_type: 'feedback';
-  feedback: QuizFeedbackItem;
-  topic: string;
-  correct_answer?: string;
-  explanation?: string;
+  feedback_items: QuizFeedbackItem[];
+  overall_assessment?: string | null;
+  suggested_next_step?: string | null;
+  topic?: string;
 }
 export interface MessageResponse {
   response_type: 'message';

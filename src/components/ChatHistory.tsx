@@ -53,9 +53,16 @@ const TutorMessageRenderer: React.FC<TutorMessageRendererProps> = ({ interaction
             The tutor has a question for you on the whiteboard.
           </div>
         );
-      case 'feedback':
-        // Corrected to use .feedback instead of .item
-        return <FeedbackViewComponent feedback={(tutorInteraction as FeedbackResponse).feedback} onNext={onNext} />;
+      case 'feedback': {
+        const feedbackRes = tutorInteraction as FeedbackResponse;
+        const firstItem = feedbackRes.feedback_items && feedbackRes.feedback_items.length > 0 ? feedbackRes.feedback_items[0] : null;
+        if (!firstItem) {
+          return (
+            <div className="text-sm text-muted-foreground">Feedback received, but details are unavailable.</div>
+          );
+        }
+        return <FeedbackViewComponent feedback={firstItem} onNext={onNext} />;
+      }
       case 'message':
         return <MessageViewComponent content={tutorInteraction as MessageResponse} />;
       default:

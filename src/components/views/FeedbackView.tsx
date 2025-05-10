@@ -1,10 +1,10 @@
 import React from 'react';
-import type { FeedbackResponse } from '@/lib/types';
+import type { QuizFeedbackItem } from '@/lib/types';
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid'; // Assuming heroicons is installed
 import { Button } from '@/components/ui/button'; // Import Button
 
 interface FeedbackViewProps {
-  feedback: FeedbackResponse['feedback']; // The nested feedback object
+  feedback: QuizFeedbackItem; // Single feedback item
   onNext: () => void;
 }
 

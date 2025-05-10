@@ -304,8 +304,13 @@ export function useTutorStream(
 
         // Update Zustand store
         setSessionState((prevState) => {
-            const tutorInteractionPayload = interactionResponse.data; // THIS IS THE KEY CHANGE
+            const tutorInteractionPayload = interactionResponse.data; // Payload from backend
             const contentType = interactionResponse.content_type;
+
+            // Ensure the payload contains a response_type field (backend may omit defaults)
+            if (contentType && typeof tutorInteractionPayload === 'object' && tutorInteractionPayload && !('response_type' in tutorInteractionPayload)) {
+                (tutorInteractionPayload as any).response_type = contentType;
+            }
 
             const update: Partial<SessionState> = {
                 userModelState: interactionResponse.user_model_state,
@@ -342,9 +347,21 @@ export function useTutorStream(
                 }
                 case 'feedback': {
                     const feedbackData = tutorInteractionPayload as FeedbackResponse;
-                    const fbItem = feedbackData.feedback;
-                    messageContentString = `Feedback (${fbItem.is_correct ? 'Correct' : 'Incorrect'}): Regarding "${fbItem.question_text}"`;
-                    if (fbItem.explanation) messageContentString += `\nExplanation: ${fbItem.explanation}`;
+                    if (feedbackData.feedback_items && feedbackData.feedback_items.length > 0) {
+                        const fbItem = feedbackData.feedback_items[0];
+                        messageContentString = `Feedback (${fbItem.is_correct ? 'Correct' : 'Incorrect'}): Regarding "${fbItem.question_text}"`;
+                        if (fbItem.explanation) messageContentString += `
+Explanation: ${fbItem.explanation}`;
+                        if (fbItem.improvement_suggestion) messageContentString += `
+Suggestion: ${fbItem.improvement_suggestion}`;
+                    } else {
+                        messageContentString = "Feedback received, but details are unavailable.";
+                        console.warn('[WS Store Update] FeedbackResponse received but feedback_items is missing or empty:', feedbackData);
+                        update.currentInteractionContent = {
+                            response_type: 'error',
+                            message: 'Feedback details missing.',
+                        } as ErrorResponse;
+                    }
                     break;
                 }
                 case 'error': {
